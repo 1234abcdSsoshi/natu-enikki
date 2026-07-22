@@ -9,21 +9,25 @@ const STYLES = [
     key: "watercolor",
     label: "水彩風",
     dir: "半透明の色面をやわらかく重ね、輪郭はうっすらにじませる。淡くやさしい色調で、光がふわりと広がる水彩画のように描く。",
+    img: "soft watercolor painting style, delicate translucent color washes, gently blurred edges, pastel dreamy light",
   },
   {
     key: "flat",
     label: "フラット",
     dir: "均一な色面と最小限のグラデーションで、明快でモダンに描く。形はシンプルに整理し、洗練された配色でまとめる。",
+    img: "flat design illustration, clean bold shapes, minimal gradients, modern refined color palette",
   },
   {
     key: "kiri-e",
     label: "切り絵風",
     dir: "はっきりした色面のシルエットを重ね、要素の縁に細い白フチを入れて、切り絵を貼り重ねたように描く。",
+    img: "Japanese paper cut art (kirie) style, layered bold silhouette shapes with thin white outlines",
   },
   {
     key: "ukiyoe",
     label: "浮世絵風",
     dir: "平坦な色面と流れるような曲線で、藍と朱を効かせた古典的な構図に。空はぼかしの階調(ぼかし摺り)で表現する。",
+    img: "traditional ukiyo-e Japanese woodblock print style, flowing linework, indigo and vermillion palette, gradated bokashi sky",
   },
 ];
 
@@ -95,6 +99,11 @@ function fitSvgIntoBox(svgStr, x, y, w, h) {
   return `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="${viewBox}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 }
 
+// ラスター画像(data URL)を、指定の枠に収まる<image>タグに書き換える
+function fitImageIntoBox(dataUrl, x, y, w, h) {
+  return `<image x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice" href="${dataUrl}"/>`;
+}
+
 // 日本語テキストを、改行と最大文字数で行に折る
 function wrapLines(text, maxChars) {
   const out = [];
@@ -106,8 +115,11 @@ function wrapLines(text, maxChars) {
 }
 
 // 絵＋日記＋日付を1枚の作品SVGに組む(左=日記・右=絵、日付は日記の上)
-function composeArtwork(svgStr, diary, date) {
-  const illo = fitSvgIntoBox(svgStr, 636, 198, 496, 372);
+function composeArtwork(artwork, diary, date) {
+  const illo =
+    artwork.kind === "raster"
+      ? fitImageIntoBox(artwork.data, 636, 198, 496, 372)
+      : fitSvgIntoBox(artwork.data, 636, 198, 496, 372);
   const dateLine = `${date.y}年 ${date.md}　${date.dow}曜日`;
   const startX = 64, startY = 236, lh = 42, maxLines = 10;
   let lines = wrapLines(diary, 15);
@@ -128,13 +140,13 @@ function composeArtwork(svgStr, diary, date) {
 <rect width="1200" height="800" fill="url(#wbg)"/>
 <text x="64" y="92" font-family="serif" font-weight="700" font-size="40" fill="#1B3A5B" letter-spacing="10">絵日記</text>
 <line x1="64" y1="116" x2="1136" y2="116" stroke="#1B3A5B" stroke-opacity="0.22" stroke-width="1.5"/>
-<text x="64" y="170" font-family="serif" font-size="24" fill="#D8482B">${escapeXml(dateLine)}</text>
-<line x1="56" y1="190" x2="592" y2="190" stroke="#D8482B" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="4 4"/>
+<text x="64" y="170" font-family="serif" font-size="24" fill="#000000">${escapeXml(dateLine)}</text>
+<line x1="56" y1="190" x2="592" y2="190" stroke="#000000" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="4 4"/>
 ${ruled}
 ${textEls}
 <rect x="616" y="150" width="536" height="470" rx="12" fill="#ffffff" stroke="#E9DFC6"/>
 ${illo}
-<text x="1136" y="774" text-anchor="end" font-family="serif" font-size="13" fill="#1B3A5B" fill-opacity="0.5">夏祭りの夜に</text>
+<text x="1136" y="774" text-anchor="end" font-family="serif" font-size="13" fill="#1B3A5B" fill-opacity="0.5">今日も一日お疲れ様でした！</text>
 </svg>`;
 }
 
@@ -160,6 +172,31 @@ const MODELS = [
   { key: "haiku", label: "軽量", id: "claude-haiku-4-5-20251001", tokens: 6000 },
 ];
 
+const ENGINES = [
+  { key: "claude", label: "Claude(SVG)" },
+  { key: "pollinations", label: "Pollinations(無料)" },
+];
+
+// Pollinations.ai 用の英語プロンプトを組み立てる
+function buildPollinationsPrompt(styleImg, diary) {
+  return `Japanese summer festival diary illustration, ${styleImg}, warm nostalgic mood, no text, no watermark. Diary: ${diary}`;
+}
+
+// Pollinations.ai から画像を取得し、data URL にして返す
+async function fetchPollinationsImage(prompt, signal) {
+  const seed = Math.floor(Math.random() * 1_000_000);
+  const url = `/api/pollinations/prompt/${encodeURIComponent(prompt)}?width=800&height=600&seed=${seed}&model=flux&nologo=true`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error(`pollinations_http_${res.status}`);
+  const blob = await res.blob();
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("pollinations_read_failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 // エラーが利用上限系なら、分かりやすい日本語に整形して返す(それ以外は null)
 function limitMessage(err) {
   const raw = typeof err === "string" ? err : JSON.stringify(err || "");
@@ -178,14 +215,78 @@ function limitMessage(err) {
 
 export default function App() {
   const [text, setText] = useState("");
-  const [svg, setSvg] = useState(null);
+  const [artwork, setArtwork] = useState(null); // { kind: "svg" | "raster", data }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [entries, setEntries] = useState([]); // セッション内のしおり
   const [styleKey, setStyleKey] = useState("watercolor");
   const [modelKey, setModelKey] = useState("sonnet");
+  const [engineKey, setEngineKey] = useState("claude");
   const [savedText, setSavedText] = useState("");
   const dateRef = useRef(todayLabel());
+
+  async function drawWithClaude(body, style) {
+    const model = MODELS.find((m) => m.key === modelKey) || MODELS[0];
+    const res = await fetch("/api/anthropic/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: model.id,
+        max_tokens: model.tokens,
+        messages: [{ role: "user", content: buildPrompt(style.dir, body) }],
+      }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      console.error("API error:", data.error);
+      const lim = limitMessage(data.error);
+      setError(
+        lim ||
+          "絵を描くところで止まってしまいました(" +
+            (data.error.message || data.error.type || "error") +
+            ")。もう一度ためしてみてください。"
+      );
+      return null;
+    }
+
+    const merged = (data.content || [])
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    const found = extractSvg(merged);
+
+    if (!found) {
+      console.error("SVG not found. stop_reason:", data.stop_reason, "raw:", merged);
+      if (data.stop_reason === "max_tokens") {
+        setError("絵が長くなって、途中で切れてしまいました。日記を少し短くして、もう一度ためしてみてください。");
+      } else {
+        setError("うまく絵にできませんでした。少し言葉を足して、もう一度ためしてみてください。");
+      }
+      return null;
+    }
+
+    return { kind: "svg", data: found };
+  }
+
+  async function drawWithPollinations(body, style) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60000);
+    try {
+      const prompt = buildPollinationsPrompt(style.img, body);
+      const dataUrl = await fetchPollinationsImage(prompt, controller.signal);
+      return { kind: "raster", data: dataUrl };
+    } catch (e) {
+      if (e.name === "AbortError") {
+        setError("絵ができるまで時間がかかりすぎました(60秒)。混雑しているようです。もう一度ためしてみてください。");
+      } else {
+        console.error("Pollinations error:", e);
+        setError("絵を描くところで止まってしまいました。もう一度ためしてみてください。");
+      }
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   async function draw() {
     const body = text.trim();
@@ -195,51 +296,16 @@ export default function App() {
     }
     setLoading(true);
     setError("");
-    setSvg(null);
+    setArtwork(null);
     try {
-      const styleDir = (STYLES.find((s) => s.key === styleKey) || STYLES[0]).dir;
-      const model = MODELS.find((m) => m.key === modelKey) || MODELS[0];
-      const res = await fetch("/api/anthropic/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: model.id,
-          max_tokens: model.tokens,
-          messages: [{ role: "user", content: buildPrompt(styleDir, body) }],
-        }),
-      });
-      const data = await res.json();
+      const style = STYLES.find((s) => s.key === styleKey) || STYLES[0];
+      const result =
+        engineKey === "pollinations" ? await drawWithPollinations(body, style) : await drawWithClaude(body, style);
+      if (!result) return;
 
-      if (data.error) {
-        console.error("API error:", data.error);
-        const lim = limitMessage(data.error);
-        setError(
-          lim ||
-            "絵を描くところで止まってしまいました(" +
-              (data.error.message || data.error.type || "error") +
-              ")。もう一度ためしてみてください。"
-        );
-        return;
-      }
-
-      const merged = (data.content || [])
-        .map((b) => (b.type === "text" ? b.text : ""))
-        .join("");
-      const found = extractSvg(merged);
-
-      if (!found) {
-        console.error("SVG not found. stop_reason:", data.stop_reason, "raw:", merged);
-        if (data.stop_reason === "max_tokens") {
-          setError("絵が長くなって、途中で切れてしまいました。日記を少し短くして、もう一度ためしてみてください。");
-        } else {
-          setError("うまく絵にできませんでした。少し言葉を足して、もう一度ためしてみてください。");
-        }
-        return;
-      }
-
-      setSvg(found);
+      setArtwork(result);
       setSavedText(body);
-      setEntries((prev) => [{ svg: found, text: body, date: { ...dateRef.current } }, ...prev].slice(0, 12));
+      setEntries((prev) => [{ artwork: result, text: body, date: { ...dateRef.current } }, ...prev].slice(0, 12));
     } catch (e) {
       setError("通信に失敗しました。時間をおいて、もう一度ためしてみてください。");
     } finally {
@@ -248,8 +314,8 @@ export default function App() {
   }
 
   function saveArtwork() {
-    if (!svg) return;
-    const comp = composeArtwork(svg, savedText || text, dateRef.current);
+    if (!artwork) return;
+    const comp = composeArtwork(artwork, savedText || text, dateRef.current);
     const W = 1200, H = 800, scale = 2;
     const img = new Image();
     img.onload = () => {
@@ -273,9 +339,16 @@ export default function App() {
     img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(comp);
   }
 
-  function saveSvg() {
-    if (!svg) return;
-    const blob = new Blob([svg], { type: "image/svg+xml" });
+  function saveRaw() {
+    if (!artwork) return;
+    if (artwork.kind === "raster") {
+      const a = document.createElement("a");
+      a.href = artwork.data;
+      a.download = `絵日記_絵のみ_${dateRef.current.y}_${dateRef.current.md}.jpg`;
+      a.click();
+      return;
+    }
+    const blob = new Blob([artwork.data], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -324,7 +397,7 @@ export default function App() {
       <header style={styles.header}>
         <div style={styles.season}>祭</div>
         <h1 style={styles.title} className="neon">絵日記</h1>
-        <p style={styles.subtitle}>夏祭りの夜に、きょうの絵日記を</p>
+        <p style={styles.subtitle}>今日は何がありましたか？</p>
       </header>
 
       <main style={styles.page} className="page">
@@ -359,20 +432,38 @@ export default function App() {
           </div>
 
           <div style={styles.styleRow}>
-            <span style={styles.styleLabel}>モデル</span>
-            {MODELS.map((m) => (
+            <span style={styles.styleLabel}>エンジン</span>
+            {ENGINES.map((en) => (
               <button
-                key={m.key}
-                onClick={() => setModelKey(m.key)}
-                style={{ ...styles.stylePill, ...(modelKey === m.key ? styles.stylePillOn : {}) }}
+                key={en.key}
+                onClick={() => setEngineKey(en.key)}
+                style={{ ...styles.stylePill, ...(engineKey === en.key ? styles.stylePillOn : {}) }}
               >
-                {m.label}
+                {en.label}
               </button>
             ))}
             <span style={styles.modelHint}>
-              {modelKey === "sonnet" ? "描写重視" : "上限にやさしい"}
+              {engineKey === "pollinations" ? "APIキー不要・低コスト" : "SVGで描き、なめらかに拡大できる"}
             </span>
           </div>
+
+          {engineKey === "claude" && (
+            <div style={styles.styleRow}>
+              <span style={styles.styleLabel}>モデル</span>
+              {MODELS.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setModelKey(m.key)}
+                  style={{ ...styles.stylePill, ...(modelKey === m.key ? styles.stylePillOn : {}) }}
+                >
+                  {m.label}
+                </button>
+              ))}
+              <span style={styles.modelHint}>
+                {modelKey === "sonnet" ? "描写重視" : "上限にやさしい"}
+              </span>
+            </div>
+          )}
 
           <div style={styles.controls}>
             <span style={styles.count}>{text.length} / 600</span>
@@ -397,14 +488,19 @@ export default function App() {
                 <p style={styles.placeholderText}>絵を描いています…</p>
               </div>
             )}
-            {!loading && svg && (
+            {!loading && artwork && artwork.kind === "svg" && (
               <div
                 className="svg-in"
                 style={styles.svgHost}
-                dangerouslySetInnerHTML={{ __html: svg }}
+                dangerouslySetInnerHTML={{ __html: artwork.data }}
               />
             )}
-            {!loading && !svg && (
+            {!loading && artwork && artwork.kind === "raster" && (
+              <div className="svg-in" style={styles.svgHost}>
+                <img src={artwork.data} alt="生成された絵" style={styles.rasterImg} />
+              </div>
+            )}
+            {!loading && !artwork && (
               <div style={styles.placeholder}>
                 <div className="unmei" aria-hidden="true">画帳</div>
                 <p style={styles.placeholderText}>ここに、きょうの絵が出ます</p>
@@ -412,12 +508,12 @@ export default function App() {
             )}
           </div>
 
-          {svg && !loading && (
+          {artwork && !loading && (
             <div style={styles.saveRow}>
               <button style={styles.saveMain} onClick={saveArtwork}>
                 作品を保存(絵＋日記)
               </button>
-              <button style={styles.saveSub} onClick={saveSvg}>
+              <button style={styles.saveSub} onClick={saveRaw}>
                 絵だけ保存
               </button>
             </div>
@@ -430,15 +526,26 @@ export default function App() {
         <section style={styles.shelf}>
           <div style={styles.shelfLabel}>しおり</div>
           <div style={styles.shelfRow}>
-            {entries.map((en, i) => (
-              <button
-                key={i}
-                style={styles.thumb}
-                onClick={() => { setSvg(en.svg); setText(en.text); setSavedText(en.text); }}
-                dangerouslySetInnerHTML={{ __html: en.svg }}
-                aria-label={`${en.date.md}の絵`}
-              />
-            ))}
+            {entries.map((en, i) =>
+              en.artwork.kind === "svg" ? (
+                <button
+                  key={i}
+                  style={styles.thumb}
+                  onClick={() => { setArtwork(en.artwork); setText(en.text); setSavedText(en.text); }}
+                  dangerouslySetInnerHTML={{ __html: en.artwork.data }}
+                  aria-label={`${en.date.md}の絵`}
+                />
+              ) : (
+                <button
+                  key={i}
+                  style={styles.thumb}
+                  onClick={() => { setArtwork(en.artwork); setText(en.text); setSavedText(en.text); }}
+                  aria-label={`${en.date.md}の絵`}
+                >
+                  <img src={en.artwork.data} alt="" style={styles.rasterImg} />
+                </button>
+              )
+            )}
           </div>
         </section>
       )}
@@ -525,6 +632,7 @@ const css = `
 /* ── 生成の演出 ── */
 .svg-in { animation: reveal 1.1s ease both; }
 .svg-in svg { width: 100%; height: auto; display: block; }
+.svg-in img { width: 100%; height: 100%; display: block; }
 @keyframes reveal { from { opacity: 0; filter: blur(6px) saturate(.6); transform: scale(.98); } to { opacity: 1; filter: blur(0) saturate(1); transform: scale(1); } }
 .ink { width: 46px; height: 46px; border-radius: 50%; background: radial-gradient(circle, ${C.asagi}, ${C.ai}); box-shadow: 0 0 22px rgba(94,147,166,.6); animation: spread 1.4s ease-in-out infinite; }
 @keyframes spread { 0% { transform: scale(.4); opacity: .3; } 50% { transform: scale(1); opacity: .65; } 100% { transform: scale(.4); opacity: .3; } }
@@ -618,6 +726,7 @@ const styles = {
     justifyContent: "center",
   },
   svgHost: { width: "100%", height: "100%" },
+  rasterImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
   placeholder: { textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 },
   placeholderText: { fontSize: 13, color: C.sumi, opacity: 0.5, margin: 0 },
   saveRow: { display: "flex", gap: 10, marginTop: 12 },

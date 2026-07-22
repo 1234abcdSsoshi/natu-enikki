@@ -25,6 +25,20 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // Pollinations.ai への中継。ブラウザから直接呼ぶとOriginヘッダーが
+        // Cloudflareのボット対策(Turnstile要求/403)に引っかかるため、
+        // サーバー側(Node)から中継してOrigin/Refererを付けずに転送する。
+        "/api/pollinations": {
+          target: "https://image.pollinations.ai",
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/pollinations/, ""),
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
+        },
       },
     },
   };
