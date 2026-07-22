@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 // 日本の夏 絵日記アプリ
 // 日記本文 → Claude(claude-sonnet-4-6)がSVGイラストに変換 → 絵日記ページに表示
@@ -55,7 +55,8 @@ const PROMPT_TOP = `あなたは日本の夏を描く、腕利きの絵日記イ
 - 全体の色数は5〜7色ほどに抑え、調和のとれた配色にする
 
 # 日本の夏の題材(日記に合うものを選ぶ)
-入道雲、夕焼け、天の川、花火、風鈴、金魚、朝顔、向日葵、蝉、麦わら帽子、うちわ、かき氷、縁側、田んぼ、海、灯籠、蚊取り線香、夕立、虹
+入道雲、夕焼け、天の川、花火、風鈴、金魚、朝顔、向日葵、蝉、麦わら帽子、うちわ、かき氷、縁側、田んぼ、海、灯籠、蚊取り線香、夕立、虹、
+盆踊り、すいか割り、線香花火、浴衣、蝉時雨、七夕飾り、金魚鉢、屋台、打ち水、すだれ
 
 # 作風
 `;
@@ -167,6 +168,40 @@ const PARTICLES = Array.from({ length: 16 }, (_, i) => ({
   dur: `${6 + (i % 5)}s`,
 }));
 
+const FIREWORKS = [
+  { top: "13%", left: "22%", c: "#EF9A3D", d: "0s", scale: 1.15 },
+  { top: "9%", left: "62%", c: "#7FC6D6", d: "2.1s", scale: 1.35 },
+  { top: "20%", left: "44%", c: "#F06E9A", d: "4s", scale: 0.95 },
+  { top: "7%", left: "8%", c: "#8CE99A", d: "1.1s", scale: 1.05 },
+  { top: "16%", left: "84%", c: "#FFD166", d: "3.2s", scale: 1.25 },
+  { top: "25%", left: "6%", c: "#C77DFF", d: "5s", scale: 0.9 },
+];
+
+const CLICK_FW_COLORS = ["#EF9A3D", "#7FC6D6", "#F06E9A", "#8CE99A", "#FFD166", "#C77DFF", "#FF8C69"];
+
+// 天の川(瞬く星)
+const STARS = Array.from({ length: 42 }, (_, i) => ({
+  left: `${(i * 13 + 7) % 100}%`,
+  top: `${(i * 7 + 3) % 60}%`,
+  size: 1 + (i % 3),
+  d: `${-((i * 0.37) % 5).toFixed(2)}s`,
+  dur: `${2.4 + (i % 4) * 0.6}s`,
+}));
+
+// 縁日の屋台のシルエット
+const YATAI = [
+  { left: "2%", w: 92 },
+  { left: "16%", w: 68 },
+  { left: "78%", w: 78 },
+  { left: "90%", w: 60 },
+];
+
+// 打ち水のしぶき
+const SPLASHES = Array.from({ length: 6 }, (_, i) => ({
+  left: `${8 + i * 16}%`,
+  d: `${(i * 1.3).toFixed(1)}s`,
+}));
+
 const MODELS = [
   { key: "sonnet", label: "きれい", id: "claude-sonnet-4-6", tokens: 8000 },
   { key: "haiku", label: "軽量", id: "claude-haiku-4-5-20251001", tokens: 6000 },
@@ -179,7 +214,7 @@ const ENGINES = [
 
 // Pollinations.ai 用の英語プロンプトを組み立てる
 function buildPollinationsPrompt(styleImg, diary) {
-  return `Japanese summer festival diary illustration, ${styleImg}, warm nostalgic mood, no text, no watermark. Diary: ${diary}`;
+  return `Japanese summer festival diary illustration, ${styleImg}, warm nostalgic mood, may feature motifs like fireworks, paper lanterns, wind chimes, goldfish, morning glories, cicadas, yukata, Bon dance, food stalls, sparkler fireworks, watermelon splitting, Tanabata streamers, bamboo blinds. no text, no watermark. Diary: ${diary}`;
 }
 
 // Pollinations.ai から画像を取得し、data URL にして返す
@@ -213,6 +248,84 @@ function limitMessage(err) {
   return "Claudeの利用上限(5時間ごとの枠)に達したため、絵を描けませんでした。" + when + " 枠が回復してから、または「軽量」モデルで、もう一度お試しください。";
 }
 
+// 花火の「ドン」と風鈴の「チリン」を Web Audio API でその場合成する(音源ファイル不要)
+function useFestivalAudio() {
+  const ctxRef = useRef(null);
+
+  function ensureCtx() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!ctxRef.current) ctxRef.current = new AC();
+    if (ctxRef.current.state === "suspended") ctxRef.current.resume();
+    return ctxRef.current;
+  }
+
+  // 最初のクリック/タップで音を解禁(ブラウザの自動再生制限に対応)
+  useEffect(() => {
+    const unlock = () => ensureCtx();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, []);
+
+  function playBoom() {
+    const ctx = ensureCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    const thump = ctx.createOscillator();
+    thump.type = "sine";
+    thump.frequency.setValueAtTime(130, now);
+    thump.frequency.exponentialRampToValueAtTime(38, now + 0.28);
+    const thumpGain = ctx.createGain();
+    thumpGain.gain.setValueAtTime(0.55, now);
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    thump.connect(thumpGain).connect(ctx.destination);
+    thump.start(now);
+    thump.stop(now + 0.35);
+
+    const bufferSize = Math.floor(ctx.sampleRate * 0.9);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2.2);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.Q.value = 0.6;
+    filter.frequency.setValueAtTime(2200, now);
+    filter.frequency.exponentialRampToValueAtTime(280, now + 0.7);
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.35, now + 0.03);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0008, now + 0.9);
+    noise.connect(filter).connect(noiseGain).connect(ctx.destination);
+    noise.start(now);
+    noise.stop(now + 0.95);
+  }
+
+  function playChime() {
+    const ctx = ensureCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [1318.5, 1975.5].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.2 / (i + 1), now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.6);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 1.65);
+    });
+  }
+
+  return { playBoom, playChime };
+}
+
 export default function App() {
   const [text, setText] = useState("");
   const [artwork, setArtwork] = useState(null); // { kind: "svg" | "raster", data }
@@ -223,7 +336,26 @@ export default function App() {
   const [modelKey, setModelKey] = useState("sonnet");
   const [engineKey, setEngineKey] = useState("claude");
   const [savedText, setSavedText] = useState("");
+  const [clickFireworks, setClickFireworks] = useState([]);
   const dateRef = useRef(todayLabel());
+  const clickFwId = useRef(0);
+  const { playBoom, playChime } = useFestivalAudio();
+
+  // 日記・絵の欄以外をクリックすると、その場所に花火を打ち上げる
+  function handleBackgroundClick(e) {
+    if (e.target.closest(".card")) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const id = clickFwId.current++;
+    const color = CLICK_FW_COLORS[Math.floor(Math.random() * CLICK_FW_COLORS.length)];
+    const scale = 0.9 + Math.random() * 0.6;
+    setClickFireworks((prev) => [...prev, { id, x, y, color, scale }]);
+    playBoom();
+    setTimeout(() => {
+      setClickFireworks((prev) => prev.filter((f) => f.id !== id));
+    }, 950);
+  }
 
   async function drawWithClaude(body, style) {
     const model = MODELS.find((m) => m.key === modelKey) || MODELS[0];
@@ -360,11 +492,20 @@ export default function App() {
   const d = dateRef.current;
 
   return (
-    <div style={styles.root}>
+    <div style={styles.root} onClick={handleBackgroundClick}>
       <style>{css}</style>
 
       {/* 夏祭りの装飾(背面) */}
       <div className="deco" aria-hidden="true">
+        {/* 天の川(瞬く星) */}
+        {STARS.map((s, i) => (
+          <span
+            key={i}
+            className="star"
+            style={{ left: s.left, top: s.top, width: s.size, height: s.size, animationDelay: s.d, animationDuration: s.dur }}
+          />
+        ))}
+
         <div className="lanterns">
           <span className="wire" />
           {LANTERNS.map((L, i) => (
@@ -373,9 +514,20 @@ export default function App() {
             </span>
           ))}
         </div>
-        <span className="fw fw1" />
-        <span className="fw fw2" />
-        <span className="fw fw3" />
+        {FIREWORKS.map((f, i) => (
+          <span
+            key={i}
+            className="fw"
+            style={{ top: f.top, left: f.left, color: f.c, animationDelay: f.d, "--fw-scale": f.scale }}
+          />
+        ))}
+        {clickFireworks.map((f) => (
+          <span
+            key={f.id}
+            className="fw click-fw"
+            style={{ left: f.x, top: f.y, color: f.color, "--fw-scale": f.scale }}
+          />
+        ))}
         {PARTICLES.map((p, i) => (
           <span
             key={i}
@@ -383,10 +535,56 @@ export default function App() {
             style={{ left: p.left, bottom: p.bottom, animationDelay: p.d, animationDuration: p.dur }}
           />
         ))}
+
+        {/* 縁日の屋台のシルエット */}
+        <div className="yatai-row">
+          {YATAI.map((y, i) => (
+            <svg key={i} className="yatai" style={{ left: y.left, width: y.w, height: y.w * 0.62 }} viewBox="0 0 60 38" preserveAspectRatio="none">
+              <polygon points="0,16 60,16 50,2 10,2" />
+              <rect x="4" y="16" width="52" height="20" />
+              <rect x="24" y="24" width="10" height="12" fill="#241033" />
+            </svg>
+          ))}
+        </div>
+
+        {/* 打ち水のしぶき */}
+        {SPLASHES.map((s, i) => (
+          <span key={i} className="splash" style={{ left: s.left, animationDelay: s.d }} />
+        ))}
+
+        {/* 蚊取り線香 */}
+        <div className="kayari">
+          <svg viewBox="0 0 32 32" width="30" height="30">
+            <path
+              d="M16 24 a8 8 0 1 1 5.6-13.6 a5.5 5.5 0 1 1 -3.9 9.5 a3 3 0 1 1 -2.1-5.1"
+              fill="none"
+              stroke="#B65C38"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            <circle cx="16" cy="26" r="1.4" fill="#8A3A22" />
+          </svg>
+          <span className="smoke" />
+        </div>
+
+        {/* すだれ */}
+        <div className="sudare">
+          {Array.from({ length: 9 }).map((_, i) => (
+            <span key={i} style={{ left: `${i * 11 + 2}%` }} />
+          ))}
+        </div>
       </div>
 
-      {/* 風鈴 */}
-      <div className="furin" aria-hidden="true">
+      {/* 風鈴(クリックで鳴らせます) */}
+      <div
+        className="furin"
+        role="button"
+        tabIndex={0}
+        aria-label="風鈴を鳴らす"
+        onClick={(e) => { e.stopPropagation(); playChime(); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); playChime(); } }}
+        onAnimationIteration={(e) => { if (e.animationName === "sway") playChime(); }}
+      >
         <div className="furin-string" />
         <div className="furin-bell">
           <div className="furin-inner" />
@@ -395,7 +593,36 @@ export default function App() {
       </div>
 
       <header style={styles.header}>
-        <div style={styles.season}>祭</div>
+        <div style={styles.season} aria-label="絵日記">
+          <svg viewBox="0 0 40 40" width="30" height="30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <filter id="badgeGlow" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="1.8" />
+              </filter>
+            </defs>
+            <g className="badge-fw-rays" stroke="#FBEFCB" strokeWidth="2.2" strokeLinecap="round" filter="url(#badgeGlow)">
+              <line x1="20" y1="17" x2="20" y2="2" />
+              <line x1="20" y1="17" x2="31" y2="6" />
+              <line x1="20" y1="17" x2="35" y2="17" />
+              <line x1="20" y1="17" x2="31" y2="28" />
+              <line x1="20" y1="17" x2="9" y2="28" />
+              <line x1="20" y1="17" x2="5" y2="17" />
+              <line x1="20" y1="17" x2="9" y2="6" />
+            </g>
+            <g stroke="#FBEFCB" strokeWidth="1.6" strokeLinecap="round">
+              <line x1="20" y1="17" x2="20" y2="2" />
+              <line x1="20" y1="17" x2="31" y2="6" />
+              <line x1="20" y1="17" x2="35" y2="17" />
+              <line x1="20" y1="17" x2="31" y2="28" />
+              <line x1="20" y1="17" x2="9" y2="28" />
+              <line x1="20" y1="17" x2="5" y2="17" />
+              <line x1="20" y1="17" x2="9" y2="6" />
+            </g>
+            <circle cx="20" cy="17" r="9.5" fill="none" stroke="#FBEFCB" strokeWidth="1" strokeOpacity="0.4" />
+            <circle className="badge-fw-core" cx="20" cy="17" r="5" fill="#FBEFCB" />
+            <path d="M20 22 L24.5 34 L20 39.5 L15.5 34 Z" fill="#2A2622" stroke="#FBEFCB" strokeWidth="0.8" />
+          </svg>
+        </div>
         <h1 style={styles.title} className="neon">絵日記</h1>
         <p style={styles.subtitle}>今日は何がありましたか？</p>
       </header>
@@ -592,19 +819,31 @@ const css = `
 @keyframes swing { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
 @keyframes lglow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 
-/* 打ち上げ花火 */
-.fw { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0;
-  box-shadow: 36px 0 2px 0 currentColor, 31px 18px 2px 0 currentColor, 18px 31px 2px 0 currentColor, 0 36px 2px 0 currentColor, -18px 31px 2px 0 currentColor, -31px 18px 2px 0 currentColor, -36px 0 2px 0 currentColor, -31px -18px 2px 0 currentColor, -18px -31px 2px 0 currentColor, 0 -36px 2px 0 currentColor, 18px -31px 2px 0 currentColor, 31px -18px 2px 0 currentColor;
-  animation: burst 6s ease-out infinite; }
-.fw1 { top: 15%; left: 24%; color: #EF9A3D; animation-delay: 0s; }
-.fw2 { top: 11%; left: 64%; color: #7FC6D6; animation-delay: 2.1s; }
-.fw3 { top: 22%; left: 46%; color: #F06E9A; animation-delay: 4s; }
+/* 打ち上げ花火(大玉+小玉の二重リングで派手に) */
+.fw { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0;
+  box-shadow:
+    52px 0 4px 1px currentColor, 45px 26px 4px 1px currentColor, 26px 45px 4px 1px currentColor, 0 52px 4px 1px currentColor,
+    -26px 45px 4px 1px currentColor, -45px 26px 4px 1px currentColor, -52px 0 4px 1px currentColor, -45px -26px 4px 1px currentColor,
+    -26px -45px 4px 1px currentColor, 0 -52px 4px 1px currentColor, 26px -45px 4px 1px currentColor, 45px -26px 4px 1px currentColor,
+    30px 15px 3px 0 currentColor, 15px 30px 3px 0 currentColor, -15px 30px 3px 0 currentColor, -30px 15px 3px 0 currentColor,
+    -30px -15px 3px 0 currentColor, -15px -30px 3px 0 currentColor, 15px -30px 3px 0 currentColor, 30px -15px 3px 0 currentColor;
+  filter: drop-shadow(0 0 12px currentColor);
+  animation: burst 5.2s ease-out infinite; }
 @keyframes burst {
-  0% { opacity: 0; transform: scale(.15); }
-  6% { opacity: 1; }
-  38% { opacity: .95; transform: scale(1); }
-  66% { opacity: 0; transform: scale(1.35); }
-  100% { opacity: 0; transform: scale(1.35); }
+  0% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * .15)); }
+  5% { opacity: 1; }
+  36% { opacity: .95; transform: scale(var(--fw-scale, 1)); }
+  64% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * 1.5)); }
+  100% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * 1.5)); }
+}
+
+/* クリックした場所に咲く単発の花火 */
+.click-fw { animation: burstOnce .9s ease-out both; z-index: 5; }
+@keyframes burstOnce {
+  0% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * .1)); }
+  8% { opacity: 1; }
+  40% { opacity: 1; transform: scale(var(--fw-scale, 1)); }
+  100% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * 1.6)); }
 }
 
 /* 光の粒(蛍) */
@@ -617,6 +856,37 @@ const css = `
   100% { transform: translate(-8px,-180px) scale(.8); opacity: 0; }
 }
 
+/* 天の川(瞬く星) */
+.star { position: absolute; border-radius: 50%; background: #fff; opacity: .15; animation-name: twinkle; animation-timing-function: ease-in-out; animation-iteration-count: infinite; box-shadow: 0 0 4px rgba(255,255,255,.8); }
+@keyframes twinkle { 0%,100% { opacity: .15; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.2); } }
+
+/* 縁日の屋台のシルエット */
+.yatai-row { position: absolute; left: 0; right: 0; bottom: 0; height: 40px; opacity: .32; }
+.yatai { position: absolute; bottom: 0; fill: #0b0714; }
+
+/* 打ち水のしぶき */
+.splash { position: absolute; bottom: 18px; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.5); opacity: 0; animation: splash 4.5s ease-out infinite; }
+@keyframes splash {
+  0% { transform: scale(.2); opacity: 0; }
+  8% { opacity: .55; }
+  30% { transform: scale(1.7); opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* 蚊取り線香 */
+.kayari { position: absolute; left: 18px; bottom: 44px; opacity: .9; }
+.kayari .smoke { position: absolute; left: 13px; bottom: 24px; width: 3px; height: 3px; border-radius: 50%; background: rgba(255,255,255,.55); filter: blur(1px); animation: smokeRise 3.6s ease-in infinite; }
+@keyframes smokeRise {
+  0% { transform: translate(0,0) scaleX(1); opacity: 0; }
+  15% { opacity: .5; }
+  55% { transform: translate(6px,-30px) scaleX(1.8); opacity: .3; }
+  100% { transform: translate(-4px,-62px) scaleX(2.6); opacity: 0; }
+}
+
+/* すだれ */
+.sudare { position: absolute; top: 0; left: 0; width: 96px; height: 150px; opacity: .35; transform-origin: top center; animation: sway 6s ease-in-out infinite; }
+.sudare span { position: absolute; top: 0; width: 3px; height: 100%; background: linear-gradient(180deg, rgba(230,200,150,.7), rgba(180,140,90,.3)); }
+
 /* ── 風鈴 ── */
 .furin { position: absolute; top: 0; right: 30px; width: 42px; z-index: 4; transform-origin: top center; animation: sway 4.5s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(127,198,214,.5)); }
 .furin-string { width: 2px; height: 52px; margin: 0 auto; background: rgba(255,255,255,.5); }
@@ -628,6 +898,12 @@ const css = `
 
 /* ── ネオン見出し ── */
 .neon { text-shadow: 0 0 10px rgba(239,154,61,.55), 0 0 24px rgba(216,72,43,.4), 0 2px 2px rgba(0,0,0,.35); }
+
+/* ── バッジの花火アイコン ── */
+.badge-fw-rays { animation: badgeRays 2.6s ease-in-out infinite; transform-origin: 20px 17px; }
+.badge-fw-core { animation: badgeCore 2.6s ease-in-out infinite; transform-origin: 20px 17px; }
+@keyframes badgeRays { 0%,100% { opacity: 0.5; transform: scale(0.94); } 50% { opacity: 1; transform: scale(1.05); } }
+@keyframes badgeCore { 0%,100% { opacity: 0.8; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.12); } }
 
 /* ── 生成の演出 ── */
 .svg-in { animation: reveal 1.1s ease both; }
@@ -643,7 +919,7 @@ textarea:focus { outline: 2px solid ${C.asagi}; outline-offset: 2px; }
 button:focus-visible { outline: 2px solid ${C.shu}; outline-offset: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .firefly, .card { animation: none !important; transition: none !important; }
+  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .click-fw, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash, .kayari .smoke, .sudare { animation: none !important; transition: none !important; }
 }
 `;
 
@@ -662,17 +938,15 @@ const styles = {
   },
   header: { textAlign: "center", paddingTop: 8, marginBottom: 20, position: "relative", zIndex: 1 },
   season: {
-    display: "inline-block",
-    fontFamily: "'Shippori Mincho', serif",
-    color: C.kinari,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    margin: "0 auto 10px",
     background: `linear-gradient(135deg, ${C.shu}, ${C.yuyake})`,
     width: 46,
     height: 46,
-    lineHeight: "46px",
     borderRadius: 10,
-    fontSize: 25,
     boxShadow: "0 0 20px rgba(239,154,61,.5), 2px 3px 0 rgba(0,0,0,.25)",
-    marginBottom: 10,
   },
   title: {
     fontFamily: "'Shippori Mincho', serif",
