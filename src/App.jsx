@@ -179,6 +179,15 @@ const FIREWORKS = [
 
 const CLICK_FW_COLORS = ["#EF9A3D", "#7FC6D6", "#F06E9A", "#8CE99A", "#FFD166", "#C77DFF", "#FF8C69"];
 
+// 長押し(チャージ)の設定: 押している時間に比例して、飛距離・大きさ・音量が増す
+const CHARGE_MAX_MS = 1400;
+const CHARGE_MIN_TRAVEL = 140;
+const CHARGE_MAX_TRAVEL = 560;
+const CHARGE_MIN_SCALE = 0.75;
+const CHARGE_MAX_SCALE = 2.1;
+const CHARGE_MIN_VOL = 0.55;
+const CHARGE_MAX_VOL = 1.7;
+
 // 天の川(瞬く星)
 const STARS = Array.from({ length: 42 }, (_, i) => ({
   left: `${(i * 13 + 7) % 100}%`,
@@ -251,6 +260,7 @@ function limitMessage(err) {
 // 花火の「ドン」と風鈴の「チリン」を Web Audio API でその場合成する(音源ファイル不要)
 function useFestivalAudio() {
   const ctxRef = useRef(null);
+  const reverbRef = useRef(null);
 
   function ensureCtx() {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -260,6 +270,36 @@ function useFestivalAudio() {
     return ctxRef.current;
   }
 
+  // 遠くの花火の反響のような、簡易リバーブ(インパルス応答をその場生成)
+  function ensureReverb(ctx) {
+    if (!reverbRef.current) {
+      const rate = ctx.sampleRate;
+      const len = Math.floor(rate * 1.8);
+      const impulse = ctx.createBuffer(2, len, rate);
+      for (let ch = 0; ch < 2; ch++) {
+        const data = impulse.getChannelData(ch);
+        for (let i = 0; i < len; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+        }
+      }
+      const convolver = ctx.createConvolver();
+      convolver.buffer = impulse;
+      const wetGain = ctx.createGain();
+      wetGain.gain.value = 0.32;
+      convolver.connect(wetGain).connect(ctx.destination);
+      reverbRef.current = convolver;
+    }
+    return reverbRef.current;
+  }
+
+  function noiseBuffer(ctx, seconds, shape = (i, n) => 1 - i / n) {
+    const size = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+    const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < size; i++) data[i] = (Math.random() * 2 - 1) * shape(i, size);
+    return buffer;
+  }
+
   // 最初のクリック/タップで音を解禁(ブラウザの自動再生制限に対応)
   useEffect(() => {
     const unlock = () => ensureCtx();
@@ -267,63 +307,151 @@ function useFestivalAudio() {
     return () => window.removeEventListener("pointerdown", unlock);
   }, []);
 
-  function playBoom() {
+  function playBoom(pan = 0, vol = 1) {
     const ctx = ensureCtx();
     if (!ctx) return;
     const now = ctx.currentTime;
+    const reverb = ensureReverb(ctx);
+    const out = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.destination;
+    if (out !== ctx.destination) {
+      out.pan.value = Math.max(-1, Math.min(1, pan));
+      out.connect(ctx.destination);
+    }
 
+    // 鋭い「バチッ」という初期の破裂トランジェント
+    const crack = ctx.createBufferSource();
+    crack.buffer = noiseBuffer(ctx, 0.05, (i, n) => Math.pow(1 - i / n, 0.5));
+    const crackGain = ctx.createGain();
+    crackGain.gain.setValueAtTime(0.45 * vol, now);
+    crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    crack.connect(crackGain).connect(out);
+    crackGain.connect(reverb);
+    crack.start(now);
+
+    // 低音の「ドン」という腹に響く一撃
     const thump = ctx.createOscillator();
     thump.type = "sine";
-    thump.frequency.setValueAtTime(130, now);
-    thump.frequency.exponentialRampToValueAtTime(38, now + 0.28);
+    thump.frequency.setValueAtTime(150, now);
+    thump.frequency.exponentialRampToValueAtTime(34, now + 0.35);
     const thumpGain = ctx.createGain();
-    thumpGain.gain.setValueAtTime(0.55, now);
-    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
-    thump.connect(thumpGain).connect(ctx.destination);
+    thumpGain.gain.setValueAtTime(0.6 * vol, now);
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    thump.connect(thumpGain).connect(out);
+    thumpGain.connect(reverb);
     thump.start(now);
-    thump.stop(now + 0.35);
+    thump.stop(now + 0.42);
 
-    const bufferSize = Math.floor(ctx.sampleRate * 0.9);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2.2);
-    }
+    // 尾を引くシューというノイズの減衰
     const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = noiseBuffer(ctx, 1.1, (i, n) => Math.pow(1 - i / n, 2.4));
     const filter = ctx.createBiquadFilter();
     filter.type = "bandpass";
     filter.Q.value = 0.6;
-    filter.frequency.setValueAtTime(2200, now);
-    filter.frequency.exponentialRampToValueAtTime(280, now + 0.7);
+    filter.frequency.setValueAtTime(2400, now);
+    filter.frequency.exponentialRampToValueAtTime(260, now + 0.8);
     const noiseGain = ctx.createGain();
     noiseGain.gain.setValueAtTime(0.0001, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.35, now + 0.03);
-    noiseGain.gain.exponentialRampToValueAtTime(0.0008, now + 0.9);
-    noise.connect(filter).connect(noiseGain).connect(ctx.destination);
+    noiseGain.gain.exponentialRampToValueAtTime(0.32 * vol, now + 0.025);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0006, now + 1.05);
+    noise.connect(filter).connect(noiseGain).connect(out);
+    noiseGain.connect(reverb);
     noise.start(now);
-    noise.stop(now + 0.95);
+    noise.stop(now + 1.1);
+
+    // 燃えかすがはぜる、ランダムな「パチ、パチ」
+    const crackleCount = 10 + Math.floor(Math.random() * 6);
+    for (let i = 0; i < crackleCount; i++) {
+      const t = now + 0.08 + Math.random() * 1.1;
+      const dur = 0.02 + Math.random() * 0.03;
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer(ctx, dur, (j, n) => 1 - j / n);
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 2500 + Math.random() * 3500;
+      bp.Q.value = 4;
+      const g = ctx.createGain();
+      const amp = Math.max(0.01, (0.08 + Math.random() * 0.1) * (1 - (t - now) / 1.3)) * vol;
+      g.gain.setValueAtTime(amp, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      src.connect(bp).connect(g).connect(out);
+      g.connect(reverb);
+      src.start(t);
+    }
   }
 
   function playChime() {
     const ctx = ensureCtx();
     if (!ctx) return;
     const now = ctx.currentTime;
-    [1318.5, 1975.5].forEach((freq, i) => {
+    const reverb = ensureReverb(ctx);
+    const base = 900 + Math.random() * 500; // 毎回わずかに音程を変えて単調さを避ける
+    const partials = [1, 2.76, 4.18, 5.4]; // ガラス風鈴らしい非整数倍音
+
+    partials.forEach((ratio, i) => {
       const osc = ctx.createOscillator();
       osc.type = "sine";
-      osc.frequency.value = freq;
+      osc.frequency.value = base * ratio;
       const gain = ctx.createGain();
+      const amp = 0.22 / (i + 1.3);
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.2 / (i + 1), now + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.6);
+      gain.gain.exponentialRampToValueAtTime(amp, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.8 - i * 0.25);
       osc.connect(gain).connect(ctx.destination);
+      gain.connect(reverb);
       osc.start(now);
-      osc.stop(now + 1.65);
+      osc.stop(now + 1.85);
     });
+
+    // ガラスが触れ合う一瞬の高音トランジェント
+    const tick = ctx.createBufferSource();
+    tick.buffer = noiseBuffer(ctx, 0.02, (i, n) => 1 - i / n);
+    const tickFilter = ctx.createBiquadFilter();
+    tickFilter.type = "highpass";
+    tickFilter.frequency.value = 4000;
+    const tickGain = ctx.createGain();
+    tickGain.gain.setValueAtTime(0.15, now);
+    tickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+    tick.connect(tickFilter).connect(tickGain).connect(ctx.destination);
+    tick.start(now);
   }
 
-  return { playBoom, playChime };
+  function playLaunch(vol = 1) {
+    const ctx = ensureCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const dur = 0.58;
+
+    // ヒュルル…と上る笛のような音
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(380, now);
+    osc.frequency.exponentialRampToValueAtTime(1500, now + dur);
+    const oscGain = ctx.createGain();
+    oscGain.gain.setValueAtTime(0.0001, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.13 * vol, now + 0.05);
+    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(oscGain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + dur + 0.02);
+
+    // シューッと空気を切るノイズ
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer(ctx, dur, () => 1);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.Q.value = 0.9;
+    filter.frequency.setValueAtTime(1200, now);
+    filter.frequency.exponentialRampToValueAtTime(4200, now + dur);
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.1 * vol, now + 0.06);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    noise.connect(filter).connect(noiseGain).connect(ctx.destination);
+    noise.start(now);
+    noise.stop(now + dur + 0.02);
+  }
+
+  return { playBoom, playChime, playLaunch };
 }
 
 export default function App() {
@@ -337,25 +465,64 @@ export default function App() {
   const [engineKey, setEngineKey] = useState("claude");
   const [savedText, setSavedText] = useState("");
   const [clickFireworks, setClickFireworks] = useState([]);
+  const [launches, setLaunches] = useState([]);
+  const [charge, setCharge] = useState(null); // { x, y } — 押している間の火種チャージ表示
   const dateRef = useRef(todayLabel());
   const clickFwId = useRef(0);
-  const { playBoom, playChime } = useFestivalAudio();
+  const pressRef = useRef(null);
+  const { playBoom, playChime, playLaunch } = useFestivalAudio();
 
-  // 日記・絵の欄以外をクリックすると、その場所に花火を打ち上げる
-  function handleBackgroundClick(e) {
-    if (e.target.closest(".card")) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  // 指定座標に花火を1発咲かせる(pan: 左右の音の定位、scale: 大きさ、vol: 音量)
+  function spawnBloom(x, y, pan = 0, scale = 1, vol = 1) {
     const id = clickFwId.current++;
     const color = CLICK_FW_COLORS[Math.floor(Math.random() * CLICK_FW_COLORS.length)];
-    const scale = 0.9 + Math.random() * 0.6;
-    setClickFireworks((prev) => [...prev, { id, x, y, color, scale }]);
-    playBoom();
+    const jitteredScale = scale * (0.9 + Math.random() * 0.2);
+    setClickFireworks((prev) => [...prev, { id, x, y, color, scale: jitteredScale }]);
+    playBoom(pan, vol);
     setTimeout(() => {
       setClickFireworks((prev) => prev.filter((f) => f.id !== id));
     }, 950);
   }
+
+  // 日記・絵の欄以外でマウスを押して離すと、火種が「ピュー」と駆け上がって花火が咲く。
+  // 押していた時間が長いほど、飛距離・花火の大きさ・音量が増す。
+  function handlePressStart(e) {
+    if (e.target.closest(".card")) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const pan = (x / rect.width) * 2 - 1;
+    pressRef.current = { x, y, pan, start: performance.now() };
+    setCharge({ x, y });
+  }
+
+  function handlePressEnd() {
+    const press = pressRef.current;
+    pressRef.current = null;
+    setCharge(null);
+    if (!press) return;
+
+    const heldMs = performance.now() - press.start;
+    const t = Math.min(heldMs, CHARGE_MAX_MS) / CHARGE_MAX_MS;
+    const travel = CHARGE_MIN_TRAVEL + t * (CHARGE_MAX_TRAVEL - CHARGE_MIN_TRAVEL);
+    const scale = CHARGE_MIN_SCALE + t * (CHARGE_MAX_SCALE - CHARGE_MIN_SCALE);
+    const vol = CHARGE_MIN_VOL + t * (CHARGE_MAX_VOL - CHARGE_MIN_VOL);
+
+    const id = clickFwId.current++;
+    const dx = (Math.random() - 0.5) * 70;
+    const targetY = Math.max(50, press.y - travel);
+    setLaunches((prev) => [...prev, { id, x: press.x, y: press.y, dx, travel }]);
+    playLaunch(vol);
+    setTimeout(() => {
+      setLaunches((prev) => prev.filter((l) => l.id !== id));
+      spawnBloom(press.x + dx, targetY, press.pan, scale, vol);
+    }, 620);
+  }
+
+  useEffect(() => {
+    window.addEventListener("pointerup", handlePressEnd);
+    return () => window.removeEventListener("pointerup", handlePressEnd);
+  }, []);
 
   async function drawWithClaude(body, style) {
     const model = MODELS.find((m) => m.key === modelKey) || MODELS[0];
@@ -492,7 +659,7 @@ export default function App() {
   const d = dateRef.current;
 
   return (
-    <div style={styles.root} onClick={handleBackgroundClick}>
+    <div style={styles.root} onPointerDown={handlePressStart}>
       <style>{css}</style>
 
       {/* 夏祭りの装飾(背面) */}
@@ -528,6 +695,14 @@ export default function App() {
             style={{ left: f.x, top: f.y, color: f.color, "--fw-scale": f.scale }}
           />
         ))}
+        {launches.map((l) => (
+          <span
+            key={l.id}
+            className="fw-launch"
+            style={{ left: l.x, top: l.y, "--dx": `${l.dx}px`, "--travel": `${l.travel}px` }}
+          />
+        ))}
+        {charge && <span className="charge-ring" style={{ left: charge.x, top: charge.y }} />}
         {PARTICLES.map((p, i) => (
           <span
             key={i}
@@ -846,6 +1021,37 @@ const css = `
   100% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * 1.6)); }
 }
 
+/* 火種が「ピュー」と駆け上がる打ち上げ演出 */
+.fw-launch {
+  position: absolute; width: 4px; height: 4px; border-radius: 50%;
+  background: #fff8d8; box-shadow: 0 0 8px 3px rgba(255,214,120,.9);
+  animation: launchUp .62s cubic-bezier(.3,.6,.4,1) both;
+  z-index: 5;
+}
+.fw-launch::after {
+  content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 34px;
+  background: linear-gradient(to top, transparent, rgba(255,200,110,.85));
+  transform: translateX(-50%);
+}
+@keyframes launchUp {
+  0% { transform: translate(0, 0); opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translate(var(--dx), calc(-1 * var(--travel))); opacity: .85; }
+}
+
+/* 押している間、火種を溜めるリング */
+.charge-ring {
+  position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px;
+  border-radius: 50%; border: 2px solid rgba(255,214,120,.85);
+  box-shadow: 0 0 10px rgba(255,190,90,.6);
+  animation: chargeGrow 1.4s linear forwards;
+  z-index: 5;
+}
+@keyframes chargeGrow {
+  0% { transform: scale(.3); opacity: .9; }
+  100% { transform: scale(3.2); opacity: .15; }
+}
+
 /* 光の粒(蛍) */
 .firefly { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: radial-gradient(circle, #fff6c8, #ffcf6a); box-shadow: 0 0 9px 2px rgba(255,207,106,.7); opacity: 0; animation-name: rise; animation-timing-function: linear; animation-iteration-count: infinite; }
 @keyframes rise {
@@ -919,7 +1125,7 @@ textarea:focus { outline: 2px solid ${C.asagi}; outline-offset: 2px; }
 button:focus-visible { outline: 2px solid ${C.shu}; outline-offset: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .click-fw, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash, .kayari .smoke, .sudare { animation: none !important; transition: none !important; }
+  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .click-fw, .fw-launch, .charge-ring, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash, .kayari .smoke, .sudare { animation: none !important; transition: none !important; }
 }
 `;
 
