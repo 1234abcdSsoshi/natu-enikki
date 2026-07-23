@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/api/anthropic/(.*)", "destination": "/api/anthropic?path=$1" },
+    { "source": "/api/pollinations/(.*)", "destination": "/api/pollinations?path=$1" }
+  ]
+}

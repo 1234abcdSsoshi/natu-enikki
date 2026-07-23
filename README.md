@@ -47,6 +47,32 @@
 
 ---
 
+## 日記の保存機能（Supabase・任意）
+
+ログインして「日記を保存」すると、書いた日記本文をクラウド（Supabase）に保存できます。
+使わなくてもアプリの他の機能（絵を描く等）には影響しません。
+
+1. [supabase.com](https://supabase.com/) で無料アカウントを作成し、新しいプロジェクトを作成
+2. プロジェクトの **Project Settings → API** を開き、
+   - `Project URL`
+   - `anon public` キー
+   をコピー
+3. `.env` に追記
+   ```
+   VITE_SUPABASE_URL=あなたのProject URL
+   VITE_SUPABASE_ANON_KEY=あなたのanon publicキー
+   ```
+4. Supabaseダッシュボードの **SQL Editor** を開き、[`supabase/schema.sql`](supabase/schema.sql) の内容を貼り付けて実行
+   （`diary_entries` テーブルと、本人の日記だけ読み書きできる権限設定が作られます）
+5. `npm run dev` を再起動（`.env` を変更したときは再起動が必要です）
+
+画面上部の「ログイン / 新規登録」からユーザー名・メールアドレス・パスワードで登録できます。
+新規登録すると確認メールが届くので、メール内のリンクを開いてから「ログイン」してください。
+（すぐに試したい場合は、Supabaseダッシュボードの **Authentication → Providers → Email** で
+「Confirm email」をオフにすると、確認メールなしでそのままログインできます。）
+
+---
+
 ## モデルの変更
 
 画面右の「モデル」で切り替えられます（初期値）。
@@ -68,6 +94,23 @@
 このフォルダを VS Code で開いた状態で Claude Code を起動すると、
 `src/App.jsx` を対象に「花火の色を増やして」「屋台のシルエットを足して」等の
 指示でそのまま改修できます。変更は `npm run dev` の画面に即時反映されます。
+
+---
+
+## スマホアプリ化(PWA)
+
+このアプリはPWA(Progressive Web App)対応済みです。ビルドして配信すると、
+スマホのブラウザから「ホーム画面に追加」でき、アイコンをタップするとブラウザのUIなしで
+アプリのように起動します(iOS Safari / Android Chrome 両対応)。オフライン時も
+一度読み込んだ画面はある程度表示できます。
+
+- 開発中(`npm run dev`)はPWA機能(Service Worker)は動きません。確認するには
+  `npm run build && npm run preview` で本番相当のビルドを起動してください
+- マニフェスト・アイコンの設定は `vite.config.js` の `VitePWA({...})` と
+  `public/icons/` にあります。アイコンを変更したい場合はここを差し替えてください
+- 実際にスマホの「ホーム画面に追加」を試すには、スマホからアクセスできる場所に
+  デプロイ(Vercel/Netlifyなど)するか、同じWi-Fi内で `npm run preview -- --host` して
+  スマホからPCのIPアドレスにアクセスしてください(PWAはHTTPS、またはlocalhostでのみ動作します)
 
 ---
 
@@ -93,7 +136,10 @@ natsu-enikki/
 ├─ vite.config.js       # APIキーを注入する開発プロキシ
 ├─ .env.example         # → .env にコピーしてキーを設定
 ├─ .gitignore
+├─ supabase/
+│  └─ schema.sql        # 日記保存用テーブルのSQL（Supabaseで実行）
 └─ src/
    ├─ main.jsx
-   └─ App.jsx           # アプリ本体
+   ├─ App.jsx           # アプリ本体
+   └─ supabaseClient.js # Supabaseクライアント設定
 ```

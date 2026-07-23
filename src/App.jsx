@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { supabase } from "./supabaseClient";
 
 // 日本の夏 絵日記アプリ
 // 日記本文 → Claude(claude-sonnet-4-6)がSVGイラストに変換 → 絵日記ページに表示
@@ -454,6 +455,197 @@ function useFestivalAudio() {
   return { playBoom, playChime, playLaunch };
 }
 
+// 背景の装飾(星・提灯・花火・蛍・屋台・打ち水・蚊取り線香・すだれ)。ログイン画面・本編で共通。
+function AmbientDeco() {
+  return (
+    <>
+      {STARS.map((s, i) => (
+        <span
+          key={i}
+          className="star"
+          style={{ left: s.left, top: s.top, width: s.size, height: s.size, animationDelay: s.d, animationDuration: s.dur }}
+        />
+      ))}
+
+      <div className="lanterns">
+        <span className="wire" />
+        {LANTERNS.map((L, i) => (
+          <span key={i} className="lantern" style={{ left: L.left, animationDelay: L.d }}>
+            <span className="lantern-body" style={{ color: L.c }} />
+          </span>
+        ))}
+      </div>
+      {FIREWORKS.map((f, i) => (
+        <span
+          key={i}
+          className="fw"
+          style={{ top: f.top, left: f.left, color: f.c, animationDelay: f.d, "--fw-scale": f.scale }}
+        />
+      ))}
+      {PARTICLES.map((p, i) => (
+        <span
+          key={i}
+          className="firefly"
+          style={{ left: p.left, bottom: p.bottom, animationDelay: p.d, animationDuration: p.dur }}
+        />
+      ))}
+
+      <div className="yatai-row">
+        {YATAI.map((y, i) => (
+          <svg key={i} className="yatai" style={{ left: y.left, width: y.w, height: y.w * 0.62 }} viewBox="0 0 60 38" preserveAspectRatio="none">
+            <polygon points="0,16 60,16 50,2 10,2" />
+            <rect x="4" y="16" width="52" height="20" />
+            <rect x="24" y="24" width="10" height="12" fill="#241033" />
+          </svg>
+        ))}
+      </div>
+
+      {SPLASHES.map((s, i) => (
+        <span key={i} className="splash" style={{ left: s.left, animationDelay: s.d }} />
+      ))}
+
+      <div className="kayari">
+        <svg viewBox="0 0 32 32" width="30" height="30">
+          <path
+            d="M16 24 a8 8 0 1 1 5.6-13.6 a5.5 5.5 0 1 1 -3.9 9.5 a3 3 0 1 1 -2.1-5.1"
+            fill="none"
+            stroke="#B65C38"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          <circle cx="16" cy="26" r="1.4" fill="#8A3A22" />
+        </svg>
+        <span className="smoke" />
+      </div>
+
+      <div className="sudare">
+        {Array.from({ length: 9 }).map((_, i) => (
+          <span key={i} style={{ left: `${i * 11 + 2}%` }} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+// 風鈴(クリック/タップで鳴らせます)
+function FurinChime({ onChime }) {
+  return (
+    <div
+      className="furin"
+      role="button"
+      tabIndex={0}
+      aria-label="風鈴を鳴らす"
+      onClick={(e) => { e.stopPropagation(); onChime(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onChime(); } }}
+      onAnimationIteration={(e) => { if (e.animationName === "sway") onChime(); }}
+    >
+      <div className="furin-string" />
+      <div className="furin-bell">
+        <div className="furin-inner" />
+      </div>
+      <div className="furin-tanzaku" />
+    </div>
+  );
+}
+
+// ロゴバッジ＋タイトル＋サブタイトル。ログイン画面・本編で共通。
+// above: サブタイトルの上に表示する内容(ユーザー名など)、below: 下に表示する内容(ログアウト等)
+function BrandHeader({ subtitle, above, below }) {
+  return (
+    <header style={styles.header}>
+      <div style={styles.season} aria-label="絵日記">
+        <svg viewBox="0 0 40 40" width="30" height="30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <defs>
+            <filter id="badgeGlow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="1.8" />
+            </filter>
+          </defs>
+          <g className="badge-fw-rays" stroke="#FBEFCB" strokeWidth="2.2" strokeLinecap="round" filter="url(#badgeGlow)">
+            <line x1="20" y1="17" x2="20" y2="2" />
+            <line x1="20" y1="17" x2="31" y2="6" />
+            <line x1="20" y1="17" x2="35" y2="17" />
+            <line x1="20" y1="17" x2="31" y2="28" />
+            <line x1="20" y1="17" x2="9" y2="28" />
+            <line x1="20" y1="17" x2="5" y2="17" />
+            <line x1="20" y1="17" x2="9" y2="6" />
+          </g>
+          <g stroke="#FBEFCB" strokeWidth="1.6" strokeLinecap="round">
+            <line x1="20" y1="17" x2="20" y2="2" />
+            <line x1="20" y1="17" x2="31" y2="6" />
+            <line x1="20" y1="17" x2="35" y2="17" />
+            <line x1="20" y1="17" x2="31" y2="28" />
+            <line x1="20" y1="17" x2="9" y2="28" />
+            <line x1="20" y1="17" x2="5" y2="17" />
+            <line x1="20" y1="17" x2="9" y2="6" />
+          </g>
+          <circle cx="20" cy="17" r="9.5" fill="none" stroke="#FBEFCB" strokeWidth="1" strokeOpacity="0.4" />
+          <circle className="badge-fw-core" cx="20" cy="17" r="5" fill="#FBEFCB" />
+          <path d="M20 22 L24.5 34 L20 39.5 L15.5 34 Z" fill="#2A2622" stroke="#FBEFCB" strokeWidth="0.8" />
+        </svg>
+      </div>
+      <h1 style={styles.title} className="neon">絵日記</h1>
+      {above}
+      <p style={styles.subtitle}>{subtitle}</p>
+      {below}
+    </header>
+  );
+}
+
+// ログイン/新規登録フォーム(ゲート画面・本編モーダル両方で共通)
+function AuthForm({ authMode, setAuthMode, authUsername, setAuthUsername, authEmail, setAuthEmail, authPassword, setAuthPassword, authError, setAuthError, authBusy, onSignIn, onSignUp }) {
+  return (
+    <div style={styles.authPanel}>
+      <div style={styles.authTabs}>
+        <button
+          style={{ ...styles.authTab, ...(authMode === "signin" ? styles.authTabOn : {}) }}
+          onClick={() => { setAuthMode("signin"); setAuthError(""); }}
+        >
+          ログイン
+        </button>
+        <button
+          style={{ ...styles.authTab, ...(authMode === "signup" ? styles.authTabOn : {}) }}
+          onClick={() => { setAuthMode("signup"); setAuthError(""); }}
+        >
+          新規登録
+        </button>
+      </div>
+
+      <form onSubmit={authMode === "signup" ? onSignUp : onSignIn} style={styles.authForm}>
+        {authMode === "signup" && (
+          <input
+            style={styles.authInput}
+            placeholder="ユーザー名"
+            value={authUsername}
+            onChange={(e) => setAuthUsername(e.target.value)}
+            required
+          />
+        )}
+        <input
+          style={styles.authInput}
+          type="email"
+          placeholder="メールアドレス"
+          value={authEmail}
+          onChange={(e) => setAuthEmail(e.target.value)}
+          required
+        />
+        <input
+          style={styles.authInput}
+          type="password"
+          placeholder="パスワード(6文字以上)"
+          value={authPassword}
+          onChange={(e) => setAuthPassword(e.target.value)}
+          minLength={6}
+          required
+        />
+        {authError && <p style={styles.authError}>{authError}</p>}
+        <button style={styles.authSubmit} type="submit" disabled={authBusy}>
+          {authBusy ? "処理中…" : authMode === "signup" ? "登録する" : "ログイン"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export default function App() {
   const [text, setText] = useState("");
   const [artwork, setArtwork] = useState(null); // { kind: "svg" | "raster", data }
@@ -471,6 +663,110 @@ export default function App() {
   const clickFwId = useRef(0);
   const pressRef = useRef(null);
   const { playBoom, playChime, playLaunch } = useFestivalAudio();
+
+  // Supabase 認証・日記の保存
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(!!supabase);
+  const [authMode, setAuthMode] = useState("signin"); // "signin" | "signup"
+  const [authUsername, setAuthUsername] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [savedEntries, setSavedEntries] = useState([]);
+  const [savingDiary, setSavingDiary] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !session) {
+      setSavedEntries([]);
+      return;
+    }
+    supabase
+      .from("diary_entries")
+      .select("id, body, style_key, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20)
+      .then(({ data, error: err }) => {
+        if (!err && data) setSavedEntries(data);
+      });
+  }, [session]);
+
+  async function handleSignUp(e) {
+    e.preventDefault();
+    if (!supabase) return;
+    setAuthError("");
+    setAuthBusy(true);
+    const { error: err } = await supabase.auth.signUp({
+      email: authEmail,
+      password: authPassword,
+      options: { data: { username: authUsername } },
+    });
+    setAuthBusy(false);
+    if (err) {
+      setAuthError(err.message);
+      return;
+    }
+    setAuthError("確認メールを送信しました。メール内のリンクを開いて登録を完了してください。");
+  }
+
+  async function handleSignIn(e) {
+    e.preventDefault();
+    if (!supabase) return;
+    setAuthError("");
+    setAuthBusy(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+    setAuthBusy(false);
+    if (err) {
+      setAuthError(err.message);
+      return;
+    }
+    setAuthEmail("");
+    setAuthPassword("");
+    setAuthUsername("");
+  }
+
+  async function handleSignOut() {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+  }
+
+  async function saveDiaryToCloud() {
+    const body = text.trim();
+    if (!body) {
+      setError("日記を書いてから保存できます。");
+      return;
+    }
+    if (!supabase) {
+      setError("Supabaseが設定されていません。.env に VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY を設定してください。");
+      return;
+    }
+    if (!session) {
+      setError("ログインが必要です。ページを再読み込みしてログインしてください。");
+      return;
+    }
+    setSavingDiary(true);
+    const { data, error: err } = await supabase
+      .from("diary_entries")
+      .insert({ user_id: session.user.id, body, style_key: styleKey })
+      .select()
+      .single();
+    setSavingDiary(false);
+    if (err) {
+      setError("日記の保存に失敗しました(" + err.message + ")。");
+      return;
+    }
+    setSavedEntries((prev) => [data, ...prev].slice(0, 20));
+  }
 
   // 指定座標に花火を1発咲かせる(pan: 左右の音の定位、scale: 大きさ、vol: 音量)
   function spawnBloom(x, y, pan = 0, scale = 1, vol = 1) {
@@ -658,36 +954,58 @@ export default function App() {
 
   const d = dateRef.current;
 
+  // 初回のセッション確認中(一瞬)
+  if (authLoading) {
+    return (
+      <div style={styles.root}>
+        <style>{css}</style>
+        <div className="deco" aria-hidden="true"><AmbientDeco /></div>
+        <div style={styles.gateLoading}><div className="ink" /></div>
+      </div>
+    );
+  }
+
+  // Supabase設定済みで未ログインの場合は、ログイン/新規登録画面だけを表示する
+  if (supabase && !session) {
+    return (
+      <div style={styles.root}>
+        <style>{css}</style>
+
+        <div className="deco" aria-hidden="true"><AmbientDeco /></div>
+        <FurinChime onChime={playChime} />
+
+        <BrandHeader subtitle="ログインして、きょうの絵日記を書きましょう" />
+
+        <div style={styles.authGate}>
+          <AuthForm
+            authMode={authMode}
+            setAuthMode={setAuthMode}
+            authUsername={authUsername}
+            setAuthUsername={setAuthUsername}
+            authEmail={authEmail}
+            setAuthEmail={setAuthEmail}
+            authPassword={authPassword}
+            setAuthPassword={setAuthPassword}
+            authError={authError}
+            setAuthError={setAuthError}
+            authBusy={authBusy}
+            onSignIn={handleSignIn}
+            onSignUp={handleSignUp}
+          />
+        </div>
+
+        <footer style={styles.footer}>夜空に花火、軒に提灯</footer>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.root} onPointerDown={handlePressStart}>
       <style>{css}</style>
 
       {/* 夏祭りの装飾(背面) */}
       <div className="deco" aria-hidden="true">
-        {/* 天の川(瞬く星) */}
-        {STARS.map((s, i) => (
-          <span
-            key={i}
-            className="star"
-            style={{ left: s.left, top: s.top, width: s.size, height: s.size, animationDelay: s.d, animationDuration: s.dur }}
-          />
-        ))}
-
-        <div className="lanterns">
-          <span className="wire" />
-          {LANTERNS.map((L, i) => (
-            <span key={i} className="lantern" style={{ left: L.left, animationDelay: L.d }}>
-              <span className="lantern-body" style={{ color: L.c }} />
-            </span>
-          ))}
-        </div>
-        {FIREWORKS.map((f, i) => (
-          <span
-            key={i}
-            className="fw"
-            style={{ top: f.top, left: f.left, color: f.c, animationDelay: f.d, "--fw-scale": f.scale }}
-          />
-        ))}
+        <AmbientDeco />
         {clickFireworks.map((f) => (
           <span
             key={f.id}
@@ -703,104 +1021,21 @@ export default function App() {
           />
         ))}
         {charge && <span className="charge-ring" style={{ left: charge.x, top: charge.y }} />}
-        {PARTICLES.map((p, i) => (
-          <span
-            key={i}
-            className="firefly"
-            style={{ left: p.left, bottom: p.bottom, animationDelay: p.d, animationDuration: p.dur }}
-          />
-        ))}
-
-        {/* 縁日の屋台のシルエット */}
-        <div className="yatai-row">
-          {YATAI.map((y, i) => (
-            <svg key={i} className="yatai" style={{ left: y.left, width: y.w, height: y.w * 0.62 }} viewBox="0 0 60 38" preserveAspectRatio="none">
-              <polygon points="0,16 60,16 50,2 10,2" />
-              <rect x="4" y="16" width="52" height="20" />
-              <rect x="24" y="24" width="10" height="12" fill="#241033" />
-            </svg>
-          ))}
-        </div>
-
-        {/* 打ち水のしぶき */}
-        {SPLASHES.map((s, i) => (
-          <span key={i} className="splash" style={{ left: s.left, animationDelay: s.d }} />
-        ))}
-
-        {/* 蚊取り線香 */}
-        <div className="kayari">
-          <svg viewBox="0 0 32 32" width="30" height="30">
-            <path
-              d="M16 24 a8 8 0 1 1 5.6-13.6 a5.5 5.5 0 1 1 -3.9 9.5 a3 3 0 1 1 -2.1-5.1"
-              fill="none"
-              stroke="#B65C38"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-            <circle cx="16" cy="26" r="1.4" fill="#8A3A22" />
-          </svg>
-          <span className="smoke" />
-        </div>
-
-        {/* すだれ */}
-        <div className="sudare">
-          {Array.from({ length: 9 }).map((_, i) => (
-            <span key={i} style={{ left: `${i * 11 + 2}%` }} />
-          ))}
-        </div>
       </div>
 
-      {/* 風鈴(クリックで鳴らせます) */}
-      <div
-        className="furin"
-        role="button"
-        tabIndex={0}
-        aria-label="風鈴を鳴らす"
-        onClick={(e) => { e.stopPropagation(); playChime(); }}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); playChime(); } }}
-        onAnimationIteration={(e) => { if (e.animationName === "sway") playChime(); }}
-      >
-        <div className="furin-string" />
-        <div className="furin-bell">
-          <div className="furin-inner" />
-        </div>
-        <div className="furin-tanzaku" />
-      </div>
+      <FurinChime onChime={playChime} />
 
-      <header style={styles.header}>
-        <div style={styles.season} aria-label="絵日記">
-          <svg viewBox="0 0 40 40" width="30" height="30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <defs>
-              <filter id="badgeGlow" x="-60%" y="-60%" width="220%" height="220%">
-                <feGaussianBlur stdDeviation="1.8" />
-              </filter>
-            </defs>
-            <g className="badge-fw-rays" stroke="#FBEFCB" strokeWidth="2.2" strokeLinecap="round" filter="url(#badgeGlow)">
-              <line x1="20" y1="17" x2="20" y2="2" />
-              <line x1="20" y1="17" x2="31" y2="6" />
-              <line x1="20" y1="17" x2="35" y2="17" />
-              <line x1="20" y1="17" x2="31" y2="28" />
-              <line x1="20" y1="17" x2="9" y2="28" />
-              <line x1="20" y1="17" x2="5" y2="17" />
-              <line x1="20" y1="17" x2="9" y2="6" />
-            </g>
-            <g stroke="#FBEFCB" strokeWidth="1.6" strokeLinecap="round">
-              <line x1="20" y1="17" x2="20" y2="2" />
-              <line x1="20" y1="17" x2="31" y2="6" />
-              <line x1="20" y1="17" x2="35" y2="17" />
-              <line x1="20" y1="17" x2="31" y2="28" />
-              <line x1="20" y1="17" x2="9" y2="28" />
-              <line x1="20" y1="17" x2="5" y2="17" />
-              <line x1="20" y1="17" x2="9" y2="6" />
-            </g>
-            <circle cx="20" cy="17" r="9.5" fill="none" stroke="#FBEFCB" strokeWidth="1" strokeOpacity="0.4" />
-            <circle className="badge-fw-core" cx="20" cy="17" r="5" fill="#FBEFCB" />
-            <path d="M20 22 L24.5 34 L20 39.5 L15.5 34 Z" fill="#2A2622" stroke="#FBEFCB" strokeWidth="0.8" />
-          </svg>
-        </div>
-        <h1 style={styles.title} className="neon">絵日記</h1>
-        <p style={styles.subtitle}>今日は何がありましたか？</p>
-      </header>
+      <BrandHeader
+        subtitle="今日は何がありましたか？"
+        above={session && (
+          <span style={styles.accountName}>
+            {session.user.user_metadata?.username || session.user.email} さん
+          </span>
+        )}
+        below={session && (
+          <button style={styles.accountBtn} onClick={handleSignOut}>ログアウト</button>
+        )}
+      />
 
       <main style={styles.page} className="page">
         {/* 日記(書くところ)— 左 */}
@@ -869,16 +1104,37 @@ export default function App() {
 
           <div style={styles.controls}>
             <span style={styles.count}>{text.length} / 600</span>
-            <button
-              style={{ ...styles.drawBtn, ...(loading ? styles.drawBtnOff : {}) }}
-              onClick={draw}
-              disabled={loading}
-            >
-              {loading ? "描いています…" : "絵にする"}
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={styles.saveDiaryBtn} onClick={saveDiaryToCloud} disabled={savingDiary}>
+                {savingDiary ? "保存中…" : "日記を保存"}
+              </button>
+              <button
+                style={{ ...styles.drawBtn, ...(loading ? styles.drawBtnOff : {}) }}
+                onClick={draw}
+                disabled={loading}
+              >
+                {loading ? "描いています…" : "絵にする"}
+              </button>
+            </div>
           </div>
 
           {error && <p style={styles.error}>{error}</p>}
+
+          {savedEntries.length > 0 && (
+            <div style={styles.savedList}>
+              <div style={styles.savedListLabel}>保存した日記</div>
+              <div style={styles.savedListRow}>
+                {savedEntries.map((en) => (
+                  <button key={en.id} style={styles.savedItem} onClick={() => setText(en.body)}>
+                    <span style={styles.savedItemDate}>
+                      {new Date(en.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })}
+                    </span>
+                    <span style={styles.savedItemBody}>{en.body.slice(0, 24)}{en.body.length > 24 ? "…" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* 絵(絵の出るところ)— 右 */}
@@ -1163,6 +1419,120 @@ const styles = {
     paddingLeft: ".3em",
   },
   subtitle: { fontSize: 13, color: "rgba(246,234,204,.72)", margin: 0, letterSpacing: ".06em" },
+  accountName: { display: "block", fontSize: 14, color: "rgba(246,234,204,.9)", letterSpacing: ".04em", marginBottom: 2 },
+  accountBtn: {
+    marginTop: 10,
+    padding: "5px 14px",
+    borderRadius: 999,
+    border: `1px solid ${C.asagi}`,
+    background: "rgba(255,255,255,.06)",
+    color: "#F6EACC",
+    fontFamily: "'Klee One', serif",
+    fontSize: 12,
+    cursor: "pointer",
+  },
+  authGate: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "56vh",
+    position: "relative",
+    zIndex: 1,
+    padding: "24px 0",
+  },
+  gateLoading: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "70vh",
+    position: "relative",
+    zIndex: 1,
+  },
+  authPanel: {
+    width: 300,
+    background: `linear-gradient(${C.kinari}, ${C.kinariDeep})`,
+    borderRadius: 14,
+    padding: 20,
+    boxShadow: "0 24px 54px -18px rgba(0,0,0,.7)",
+  },
+  authTabs: { display: "flex", gap: 8, marginBottom: 14 },
+  authTab: {
+    flex: 1,
+    padding: "8px 0",
+    borderRadius: 999,
+    border: `1px solid ${C.asagi}`,
+    background: "transparent",
+    color: C.ai,
+    fontFamily: "'Klee One', serif",
+    fontSize: 13,
+    cursor: "pointer",
+  },
+  authTabOn: { background: C.ai, color: C.kinari, border: `1px solid ${C.ai}` },
+  authForm: { display: "flex", flexDirection: "column", gap: 8 },
+  authInput: {
+    padding: "9px 12px",
+    borderRadius: 8,
+    border: `1px solid ${C.kinariDeep}`,
+    background: "#fffdf7",
+    fontSize: 14,
+    fontFamily: "'Klee One', serif",
+    color: C.sumi,
+  },
+  authError: { fontSize: 12, color: C.shu, margin: "2px 0" },
+  authSubmit: {
+    marginTop: 4,
+    padding: "10px 0",
+    border: "none",
+    borderRadius: 8,
+    background: `linear-gradient(135deg, ${C.shu}, ${C.yuyake})`,
+    color: "#fff",
+    fontFamily: "'Klee One', serif",
+    fontSize: 14,
+    cursor: "pointer",
+  },
+  authClose: {
+    marginTop: 10,
+    width: "100%",
+    padding: "6px 0",
+    border: "none",
+    background: "transparent",
+    color: C.asagi,
+    fontFamily: "'Klee One', serif",
+    fontSize: 12,
+    cursor: "pointer",
+  },
+  saveDiaryBtn: {
+    padding: "12px 18px",
+    borderRadius: 999,
+    border: `1.5px solid ${C.ai}`,
+    background: "transparent",
+    color: C.ai,
+    fontFamily: "'Klee One', serif",
+    fontSize: 13,
+    cursor: "pointer",
+  },
+  savedList: { marginTop: 14 },
+  savedListLabel: {
+    fontFamily: "'Shippori Mincho', serif",
+    color: C.ai,
+    fontSize: 12,
+    letterSpacing: ".1em",
+    marginBottom: 6,
+  },
+  savedListRow: { display: "flex", flexDirection: "column", gap: 6, maxHeight: 120, overflowY: "auto" },
+  savedItem: {
+    display: "flex",
+    gap: 8,
+    alignItems: "baseline",
+    padding: "6px 10px",
+    borderRadius: 8,
+    border: `1px solid ${C.kinariDeep}`,
+    background: "#fffdf7",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  savedItemDate: { fontSize: 11, color: C.shu, flexShrink: 0 },
+  savedItemBody: { fontSize: 12, color: C.sumi, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   page: {},
   // 画帳(右)
   canvasWrap: {
