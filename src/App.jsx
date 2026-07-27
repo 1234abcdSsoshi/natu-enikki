@@ -271,8 +271,11 @@ const SFX_LAUNCH = "/audio/launch.mp3"; // 打ち上げ(ヒュー)
 const SFX_BOOM = "/audio/boom.mp3"; // 爆発(ドン)
 const SFX_CHIME = "/audio/chime.mp3"; // 風鈴(チリン)
 
+const CHIME_REST_MS = 5000; // 風鈴の音を鳴らす間隔(この時間内は再度鳴らさない)
+
 function useFestivalAudio() {
   const ctxRef = useRef(null);
+  const lastChimeRef = useRef(0);
 
   // パン(左右定位)が必要な音だけ、Web Audio経由でステレオパンをかける
   function ensureCtx() {
@@ -290,36 +293,63 @@ function useFestivalAudio() {
     return () => window.removeEventListener("pointerdown", unlock);
   }, []);
 
+  // 再生したAudio要素を返す(呼び出し側で途中停止できるように)。
+  // vol が1を超える場合、audio.volume(最大1まで)では頭打ちになるため、
+  // GainNode(1を超えて本当に増幅できる)経由で音量を上げる。
   function playClip(url, { vol = 1, pan = 0 } = {}) {
     const audio = new Audio(url);
-    audio.volume = Math.max(0, Math.min(1, vol));
+    const ctx = ensureCtx();
 
-    if (pan !== 0) {
-      const ctx = ensureCtx();
-      if (ctx && ctx.createStereoPanner) {
-        try {
-          const src = ctx.createMediaElementSource(audio);
+    if (ctx && (pan !== 0 || vol > 1)) {
+      try {
+        const src = ctx.createMediaElementSource(audio);
+        const gain = ctx.createGain();
+        gain.gain.value = Math.max(0, vol);
+        let node = src.connect(gain);
+        if (pan !== 0 && ctx.createStereoPanner) {
           const panner = ctx.createStereoPanner();
           panner.pan.value = Math.max(-1, Math.min(1, pan));
-          src.connect(panner).connect(ctx.destination);
-        } catch {
-          // パン付与に失敗しても、通常再生にフォールバックする
+          node = gain.connect(panner);
+        } else {
+          node = gain;
         }
+        node.connect(ctx.destination);
+        audio.play().catch(() => {});
+        return audio;
+      } catch {
+        // 失敗した場合は、通常のaudio.volumeでの再生にフォールバックする
       }
     }
 
+    audio.volume = Math.max(0, Math.min(1, vol));
     audio.play().catch(() => {});
+    return audio;
   }
 
   const playBoom = (pan = 0, vol = 1) => playClip(SFX_BOOM, { vol, pan });
-  const playChime = () => playClip(SFX_CHIME, { vol: 1 });
   const playLaunch = (vol = 1) => playClip(SFX_LAUNCH, { vol });
+
+  // 風鈴: 前回の再生から CHIME_REST_MS 経っていなければ鳴らさない
+  function playChime() {
+    const now = performance.now();
+    if (now - lastChimeRef.current < CHIME_REST_MS) return;
+    lastChimeRef.current = now;
+    playClip(SFX_CHIME, { vol: 1 });
+  }
 
   return { playBoom, playChime, playLaunch };
 }
 
+// "22%" のような left 値を、左右定位(-1〜1)に変換する
+function pctToPan(pct) {
+  const n = parseFloat(pct);
+  if (Number.isNaN(n)) return 0;
+  return (n / 100) * 2 - 1;
+}
+
 // 背景の装飾(星・提灯・花火・蛍・屋台・打ち水・蚊取り線香・すだれ)。ログイン画面・本編で共通。
-function AmbientDeco() {
+// onBoom を渡すと、自動で打ち上がる花火が咲くタイミングにあわせて爆発音を鳴らす。
+function AmbientDeco({ onBoom }) {
   return (
     <>
       {STARS.map((s, i) => (
@@ -343,6 +373,9 @@ function AmbientDeco() {
           key={i}
           className="fw"
           style={{ top: f.top, left: f.left, color: f.c, animationDelay: f.d, "--fw-scale": f.scale }}
+          onAnimationIteration={(e) => {
+            if (e.animationName === "burst" && onBoom) onBoom(pctToPan(f.left), 0.6);
+          }}
         />
       ))}
       {PARTICLES.map((p, i) => (
@@ -818,8 +851,13 @@ export default function App() {
     const dx = (Math.random() - 0.5) * 70;
     const targetY = Math.max(50, press.y - travel);
     setLaunches((prev) => [...prev, { id, x: press.x, y: press.y, dx, travel }]);
-    playLaunch(vol);
+    const launchAudio = playLaunch(vol);
     setTimeout(() => {
+      // 花火が咲く(火種が爆発する)瞬間に、打ち上げ音を止める
+      if (launchAudio) {
+        launchAudio.pause();
+        launchAudio.currentTime = 0;
+      }
       setLaunches((prev) => prev.filter((l) => l.id !== id));
       spawnBloom(press.x + dx, targetY, press.pan, scale, vol);
     }, 620);
@@ -970,7 +1008,7 @@ export default function App() {
     return (
       <div style={styles.root}>
         <style>{css}</style>
-        <div className="deco" aria-hidden="true"><AmbientDeco /></div>
+        <div className="deco" aria-hidden="true"><AmbientDeco onBoom={playBoom} /></div>
         <div style={styles.gateLoading}><div className="ink" /></div>
       </div>
     );
@@ -982,7 +1020,7 @@ export default function App() {
       <div style={styles.root}>
         <style>{css}</style>
 
-        <div className="deco" aria-hidden="true"><AmbientDeco /></div>
+        <div className="deco" aria-hidden="true"><AmbientDeco onBoom={playBoom} /></div>
         <FurinChime onChime={playChime} />
 
         <BrandHeader subtitle="ログインして、きょうの絵日記を書きましょう" />
@@ -1016,7 +1054,7 @@ export default function App() {
 
       {/* 夏祭りの装飾(背面) */}
       <div className="deco" aria-hidden="true">
-        <AmbientDeco />
+        <AmbientDeco onBoom={playBoom} />
         {clickFireworks.map((f) => (
           <span
             key={f.id}
