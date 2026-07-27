@@ -268,7 +268,8 @@ function limitMessage(err) {
 
 // 花火・風鈴の効果音(録音したmp3を再生する)
 const SFX_LAUNCH = "/audio/launch.mp3"; // 打ち上げ(ヒュー)
-const SFX_BOOM = "/audio/boom.mp3"; // 爆発(ドン)
+const SFX_BOOM = "/audio/boom.mp3"; // 自動で打ち上がる花火の爆発音
+const SFX_BOOM_LAUNCH = "/audio/boom_launch.mp3"; // 火種(打ち上げ)から爆発する花火の爆発音
 const SFX_CHIME = "/audio/chime.mp3"; // 風鈴(チリン)
 
 const CHIME_REST_MS = 5000; // 風鈴の音を鳴らす間隔(この時間内は再度鳴らさない)
@@ -296,9 +297,20 @@ function useFestivalAudio() {
   // 再生したAudio要素を返す(呼び出し側で途中停止できるように)。
   // vol が1を超える場合、audio.volume(最大1まで)では頭打ちになるため、
   // GainNode(1を超えて本当に増幅できる)経由で音量を上げる。
-  function playClip(url, { vol = 1, pan = 0 } = {}) {
+  // startAt/stopAt を指定すると、その区間(秒)だけを再生する
+  // (1つの音源ファイルに複数発分の音が収録されている場合に、1発分だけ再生するため)
+  function playClip(url, { vol = 1, pan = 0, startAt = 0, stopAt = null } = {}) {
     const audio = new Audio(url);
     const ctx = ensureCtx();
+
+    if (startAt > 0) {
+      audio.currentTime = startAt;
+      audio.addEventListener("loadedmetadata", () => { audio.currentTime = startAt; }, { once: true });
+    }
+
+    if (stopAt) {
+      setTimeout(() => audio.pause(), Math.max(0, stopAt - startAt) * 1000);
+    }
 
     if (ctx && (pan !== 0 || vol > 1)) {
       try {
@@ -314,7 +326,7 @@ function useFestivalAudio() {
           node = gain;
         }
         node.connect(ctx.destination);
-        audio.play().catch(() => {});
+        audio.play().catch(() => { });
         return audio;
       } catch {
         // 失敗した場合は、通常のaudio.volumeでの再生にフォールバックする
@@ -322,11 +334,14 @@ function useFestivalAudio() {
     }
 
     audio.volume = Math.max(0, Math.min(1, vol));
-    audio.play().catch(() => {});
+    audio.play().catch(() => { });
     return audio;
   }
 
-  const playBoom = (pan = 0, vol = 1) => playClip(SFX_BOOM, { vol, pan });
+  const playBoom = (pan = 0, vol = 1) => playClip(SFX_BOOM, { vol, pan }); // 自動で打ち上がる花火用
+  // 火種から爆発する花火用。収録音源には複数発分入っているため、無音の前置き部分を
+  // 飛ばして0.25秒から再生し、2発目が始まる1.00秒より前の0.95秒で止める
+  const playLaunchBoom = (pan = 0, vol = 1) => playClip(SFX_BOOM_LAUNCH, { vol, pan, startAt: 0.35, stopAt: 0.95 });
   const playLaunch = (vol = 1) => playClip(SFX_LAUNCH, { vol });
 
   // 風鈴: 前回の再生から CHIME_REST_MS 経っていなければ鳴らさない
@@ -337,7 +352,7 @@ function useFestivalAudio() {
     playClip(SFX_CHIME, { vol: 1 });
   }
 
-  return { playBoom, playChime, playLaunch };
+  return { playBoom, playLaunchBoom, playChime, playLaunch };
 }
 
 // "22%" のような left 値を、左右定位(-1〜1)に変換する
@@ -647,7 +662,7 @@ export default function App() {
   const dateRef = useRef(todayLabel());
   const clickFwId = useRef(0);
   const pressRef = useRef(null);
-  const { playBoom, playChime, playLaunch } = useFestivalAudio();
+  const { playBoom, playLaunchBoom, playChime, playLaunch } = useFestivalAudio();
 
   // Supabase 認証・日記の保存
   const [session, setSession] = useState(null);
@@ -812,12 +827,13 @@ export default function App() {
   }
 
   // 指定座標に花火を1発咲かせる(pan: 左右の音の定位、scale: 大きさ、vol: 音量)
+  // ※これは火種(打ち上げ)から爆発する花火専用なので、爆発音は playLaunchBoom を使う
   function spawnBloom(x, y, pan = 0, scale = 1, vol = 1) {
     const id = clickFwId.current++;
     const color = CLICK_FW_COLORS[Math.floor(Math.random() * CLICK_FW_COLORS.length)];
     const jitteredScale = scale * (0.9 + Math.random() * 0.2);
     setClickFireworks((prev) => [...prev, { id, x, y, color, scale: jitteredScale }]);
-    playBoom(pan, vol);
+    playLaunchBoom(pan, vol);
     setTimeout(() => {
       setClickFireworks((prev) => prev.filter((f) => f.id !== id));
     }, 950);
@@ -1298,15 +1314,33 @@ const css = `
 .lanterns { position: absolute; top: 0; left: 0; right: 0; height: 130px; }
 .lanterns .wire { position: absolute; top: 30px; left: -3%; width: 106%; height: 2px; background: linear-gradient(90deg, transparent, rgba(255,214,150,.45), rgba(255,214,150,.45), transparent); }
 .lantern { position: absolute; top: 30px; width: 36px; height: 48px; transform-origin: top center; animation: swing 4.2s ease-in-out infinite; }
-.lantern-body { display: block; width: 36px; height: 48px; border-radius: 50% / 42%; background: radial-gradient(circle at 40% 32%, #fff4cf 0%, currentColor 62%, rgba(0,0,0,.35) 100%); box-shadow: 0 0 22px 5px currentColor, inset -4px -5px 9px rgba(0,0,0,.28); position: relative; animation: lglow 3.2s ease-in-out infinite; }
-.lantern-body::before, .lantern-body::after { content:''; position:absolute; left:5px; right:5px; height:2px; background: rgba(70,25,10,.4); }
-.lantern-body::before { top: 9px; } .lantern-body::after { bottom: 9px; }
+.lantern-body {
+  display: block; width: 36px; height: 48px; border-radius: 50% / 42%;
+  background:
+    radial-gradient(ellipse 10px 15px at 28% 22%, rgba(255,255,255,.9), rgba(255,255,255,0) 72%),
+    repeating-linear-gradient(180deg, rgba(70,25,10,.3) 0 2px, transparent 2px 13px),
+    radial-gradient(circle at 40% 32%, #fff4cf 0%, currentColor 62%, rgba(0,0,0,.35) 100%);
+  box-shadow:
+    0 0 24px 5px currentColor,
+    inset -5px -6px 10px rgba(0,0,0,.32),
+    inset 3px 4px 7px rgba(255,255,255,.3);
+  position: relative;
+  animation: lglow 3.2s ease-in-out infinite;
+}
+.lantern-body::before, .lantern-body::after {
+  content: ''; position: absolute; left: 7px; right: 7px; height: 6px; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(0,0,0,.5), rgba(0,0,0,.1));
+}
+.lantern-body::before { top: -3px; } .lantern-body::after { bottom: -3px; }
 @keyframes swing { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
 @keyframes lglow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 
-/* 打ち上げ花火(大玉+小玉の二重リングで派手に) */
-.fw { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0;
+/* 打ち上げ花火(大玉+小玉の二重リングで派手に。中心はガラス/クリスタル風の白い核) */
+.fw { position: absolute; width: 7px; height: 7px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff 0%, #fff 15%, currentColor 60%, currentColor 100%);
+  opacity: 0;
   box-shadow:
+    0 0 9px 2px #fff,
     52px 0 4px 1px currentColor, 45px 26px 4px 1px currentColor, 26px 45px 4px 1px currentColor, 0 52px 4px 1px currentColor,
     -26px 45px 4px 1px currentColor, -45px 26px 4px 1px currentColor, -52px 0 4px 1px currentColor, -45px -26px 4px 1px currentColor,
     -26px -45px 4px 1px currentColor, 0 -52px 4px 1px currentColor, 26px -45px 4px 1px currentColor, 45px -26px 4px 1px currentColor,
@@ -1406,8 +1440,27 @@ const css = `
 /* ── 風鈴 ── */
 .furin { position: absolute; top: 0; right: 30px; width: 42px; z-index: 4; transform-origin: top center; animation: sway 4.5s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(127,198,214,.5)); }
 .furin-string { width: 2px; height: 52px; margin: 0 auto; background: rgba(255,255,255,.5); }
-.furin-bell { width: 42px; height: 36px; margin: -2px auto 0; border-radius: 50% 50% 46% 46%; background: radial-gradient(circle at 34% 30%, #ffffff 0%, ${C.asagi} 55%, ${C.ai} 100%); box-shadow: inset -3px -4px 6px rgba(0,0,0,.2), 0 0 14px rgba(127,198,214,.5); position: relative; }
-.furin-inner { position: absolute; left: 50%; bottom: -3px; width: 8px; height: 8px; border-radius: 50%; background: ${C.shu}; transform: translateX(-50%); }
+.furin-bell {
+  width: 42px; height: 36px; margin: -2px auto 0; border-radius: 50% 50% 46% 46%;
+  background: radial-gradient(circle at 34% 30%, #ffffff 0%, ${C.asagi} 55%, ${C.ai} 100%);
+  box-shadow:
+    inset -4px -5px 7px rgba(0,0,0,.25),
+    inset 3px 4px 6px rgba(255,255,255,.4),
+    0 0 16px rgba(127,198,214,.55);
+  position: relative;
+  overflow: hidden;
+}
+.furin-bell::before {
+  content: ''; position: absolute; top: 5px; left: 9px; width: 6px; height: 17px;
+  background: linear-gradient(120deg, rgba(255,255,255,.9), rgba(255,255,255,0) 75%);
+  border-radius: 50%; transform: rotate(-18deg); filter: blur(.4px);
+}
+.furin-inner {
+  position: absolute; left: 50%; bottom: -3px; width: 8px; height: 8px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff 0%, ${C.shu} 55%, #7a1f0f 100%);
+  box-shadow: inset -1px -1px 2px rgba(0,0,0,.4);
+  transform: translateX(-50%);
+}
 .furin-tanzaku { width: 13px; height: 32px; margin: 2px auto 0; background: ${C.shu}; opacity: .9; border-radius: 2px; animation: flutter 4.5s ease-in-out infinite; }
 @keyframes sway { 0%,100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
 @keyframes flutter { 0%,100% { transform: skewX(-9deg); } 50% { transform: skewX(9deg); } }
