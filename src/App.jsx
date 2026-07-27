@@ -7,28 +7,22 @@ import { supabase } from "./supabaseClient";
 // 作風プリセット(画面から選べる)
 const STYLES = [
   {
-    key: "watercolor",
-    label: "水彩風",
-    dir: "半透明の色面をやわらかく重ね、輪郭はうっすらにじませる。淡くやさしい色調で、光がふわりと広がる水彩画のように描く。",
-    img: "soft watercolor painting style, delicate translucent color washes, gently blurred edges, pastel dreamy light",
+    key: "watercolor-pencil",
+    label: "水彩色鉛筆風",
+    dir: "アニメ塗りのようなくっきりした塗りではなく、にじみやムラのある水彩と、紙の質感が透ける色鉛筆の重ね塗りで描く。輪郭は淡く、色は彩度を抑えて優しく発色させ、素朴であたたかい雰囲気にする。",
+    img: "soft watercolor and colored pencil illustration, visible paper texture, gentle bleeding watercolor edges, muted pastel colors, rustic warm hand-colored feel",
   },
   {
-    key: "flat",
-    label: "フラット",
-    dir: "均一な色面と最小限のグラデーションで、明快でモダンに描く。形はシンプルに整理し、洗練された配色でまとめる。",
-    img: "flat design illustration, clean bold shapes, minimal gradients, modern refined color palette",
+    key: "sketch",
+    label: "らくがき風",
+    dir: "均一に整えすぎず、少し震えたような手描きの線(輪郭をわずかに二重線にする、ゆらぎのあるストローク)で描く。塗りもきっちり塗り分けず、はみ出しやムラを少し残し、完璧すぎないラフでゆるい仕上がりにする。個人の日記帳にさらっと描いたような、親密で気取らない空気感にする。",
+    img: "hand-drawn doodle sketch style, wobbly uneven pencil lines, loose imperfect linework, casual personal diary sketch feel, rough scribbly illustration, not too polished",
   },
   {
-    key: "kiri-e",
-    label: "切り絵風",
-    dir: "はっきりした色面のシルエットを重ね、要素の縁に細い白フチを入れて、切り絵を貼り重ねたように描く。",
-    img: "Japanese paper cut art (kirie) style, layered bold silhouette shapes with thin white outlines",
-  },
-  {
-    key: "ukiyoe",
-    label: "浮世絵風",
-    dir: "平坦な色面と流れるような曲線で、藍と朱を効かせた古典的な構図に。空はぼかしの階調(ぼかし摺り)で表現する。",
-    img: "traditional ukiyo-e Japanese woodblock print style, flowing linework, indigo and vermillion palette, gradated bokashi sky",
+    key: "comic-essay",
+    label: "エッセイ漫画風",
+    dir: "コマ割り風に画面を枠線で区切り、吹き出し(丸みを帯びた形)を組み合わせた、絵日記エッセイ漫画のような構図で描く。人物はやや簡略化したかわいらしいプロポーションにし、擬音や効果線などのマンガ的な記号を図形(線・円・多角形)で添える。文字は描かず、形と線の組み合わせだけでエッセイ漫画らしい雰囲気を出す。",
+    img: "Japanese comic essay illustration style (manga essay / 4-koma inspired), panel border lines, simple speech bubble shapes, cute simplified chibi-style character, manga sound-effect lines, storytelling composition, blank speech bubbles with no readable text",
   },
 ];
 
@@ -652,7 +646,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [entries, setEntries] = useState([]); // セッション内のしおり
-  const [styleKey, setStyleKey] = useState("watercolor");
+  const [styleKey, setStyleKey] = useState("watercolor-pencil");
   const [modelKey, setModelKey] = useState("sonnet");
   const [engineKey, setEngineKey] = useState("claude");
   const [savedText, setSavedText] = useState("");
