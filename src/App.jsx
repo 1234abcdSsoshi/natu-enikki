@@ -640,6 +640,49 @@ function AuthForm({ authMode, setAuthMode, authUsername, setAuthUsername, authEm
   );
 }
 
+// マイページ: 保存済みの絵日記の一覧
+function MyPage({ entries, onOpen, onDelete }) {
+  return (
+    <section style={styles.mypageWrap} className="card">
+      <h2 style={styles.mypageTitle}>マイページ</h2>
+      {entries.length === 0 ? (
+        <p style={styles.mypageEmpty}>
+          まだ保存された絵日記がありません。日記を書いて「日記を保存」を押すと、ここに並びます。
+        </p>
+      ) : (
+        <div style={styles.mypageGrid}>
+          {entries.map((en) => (
+            <div key={en.id} style={styles.mypageCard}>
+              <div style={styles.mypageThumb}>
+                {en.artwork_kind === "svg" && en.artwork_data ? (
+                  <div style={styles.mypageThumbInner} dangerouslySetInnerHTML={{ __html: en.artwork_data }} />
+                ) : en.artwork_kind === "raster" && en.artwork_data ? (
+                  <img src={en.artwork_data} alt="" style={styles.rasterImg} />
+                ) : (
+                  <div style={styles.mypageThumbPlaceholder}>絵なし</div>
+                )}
+              </div>
+              <div style={styles.mypageDate}>
+                {new Date(en.created_at).toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" })}
+              </div>
+              <p style={styles.mypageBody}>{en.body}</p>
+              <div style={styles.mypageActions}>
+                <button style={styles.mypageOpenBtn} onClick={() => onOpen(en)}>開く</button>
+                <button
+                  style={styles.mypageDeleteBtn}
+                  onClick={() => { if (window.confirm("この絵日記を削除しますか？")) onDelete(en.id); }}
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [text, setText] = useState("");
   const [artwork, setArtwork] = useState(null); // { kind: "svg" | "raster", data }
@@ -669,6 +712,7 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [savedEntries, setSavedEntries] = useState([]);
   const [savingDiary, setSavingDiary] = useState(false);
+  const [view, setView] = useState("diary"); // "diary" | "mypage"
 
   useEffect(() => {
     if (!supabase) return;
@@ -687,13 +731,33 @@ export default function App() {
     }
     supabase
       .from("diary_entries")
-      .select("id, body, style_key, created_at")
+      .select("id, body, style_key, artwork_kind, artwork_data, created_at")
       .order("created_at", { ascending: false })
-      .limit(20)
+      .limit(50)
       .then(({ data, error: err }) => {
         if (!err && data) setSavedEntries(data);
       });
   }, [session]);
+
+  // マイページ: 保存済みの絵日記を編集画面に呼び出す
+  function openSavedEntry(en) {
+    setText(en.body);
+    setSavedText(en.body);
+    if (en.style_key && STYLES.some((s) => s.key === en.style_key)) setStyleKey(en.style_key);
+    setArtwork(en.artwork_kind && en.artwork_data ? { kind: en.artwork_kind, data: en.artwork_data } : null);
+    setView("diary");
+  }
+
+  // マイページ: 保存済みの絵日記を削除する
+  async function deleteSavedEntry(id) {
+    if (!supabase) return;
+    const { error: err } = await supabase.from("diary_entries").delete().eq("id", id);
+    if (err) {
+      setError("削除に失敗しました(" + err.message + ")。");
+      return;
+    }
+    setSavedEntries((prev) => prev.filter((en) => en.id !== id));
+  }
 
   async function handleSignUp(e) {
     e.preventDefault();
@@ -749,9 +813,14 @@ export default function App() {
       return;
     }
     setSavingDiary(true);
+    const payload = { user_id: session.user.id, body, style_key: styleKey };
+    if (artwork) {
+      payload.artwork_kind = artwork.kind;
+      payload.artwork_data = artwork.data;
+    }
     const { data, error: err } = await supabase
       .from("diary_entries")
-      .insert({ user_id: session.user.id, body, style_key: styleKey })
+      .insert(payload)
       .select()
       .single();
     setSavingDiary(false);
@@ -1027,10 +1096,23 @@ export default function App() {
           </span>
         )}
         below={session && (
-          <button style={styles.accountBtn} onClick={handleSignOut}>ログアウト</button>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+            {view === "diary" ? (
+              <button style={styles.accountBtn} onClick={() => setView("mypage")}>マイページ</button>
+            ) : (
+              <button style={styles.accountBtn} onClick={() => setView("diary")}>日記に戻る</button>
+            )}
+            <button style={styles.accountBtn} onClick={handleSignOut}>ログアウト</button>
+          </div>
         )}
       />
 
+      {view === "mypage" && (
+        <MyPage entries={savedEntries} onOpen={openSavedEntry} onDelete={deleteSavedEntry} />
+      )}
+
+      {view === "diary" && (
+      <>
       <main style={styles.page} className="page">
         {/* 日記(書くところ)— 左 */}
         <section style={styles.writeWrap} className="card">
@@ -1113,22 +1195,6 @@ export default function App() {
           </div>
 
           {error && <p style={styles.error}>{error}</p>}
-
-          {savedEntries.length > 0 && (
-            <div style={styles.savedList}>
-              <div style={styles.savedListLabel}>保存した日記</div>
-              <div style={styles.savedListRow}>
-                {savedEntries.map((en) => (
-                  <button key={en.id} style={styles.savedItem} onClick={() => setText(en.body)}>
-                    <span style={styles.savedItemDate}>
-                      {new Date(en.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })}
-                    </span>
-                    <span style={styles.savedItemBody}>{en.body.slice(0, 24)}{en.body.length > 24 ? "…" : ""}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
 
         {/* 絵(絵の出るところ)— 右 */}
@@ -1200,6 +1266,8 @@ export default function App() {
             )}
           </div>
         </section>
+      )}
+      </>
       )}
 
       <footer style={styles.footer}>夜空に花火、軒に提灯</footer>
@@ -1505,29 +1573,85 @@ const styles = {
     fontSize: 13,
     cursor: "pointer",
   },
-  savedList: { marginTop: 14 },
-  savedListLabel: {
+  page: {},
+  // マイページ
+  mypageWrap: {
+    maxWidth: 1000,
+    margin: "0 auto",
+    background: `linear-gradient(${C.kinari}, ${C.kinariDeep})`,
+    borderRadius: 14,
+    padding: 24,
+    border: "1px solid rgba(255,255,255,.4)",
+    boxShadow: "0 24px 54px -18px rgba(0,0,0,.7), 0 0 46px -14px rgba(239,154,61,.35), inset 0 1px 0 rgba(255,255,255,.7)",
+    position: "relative",
+    zIndex: 1,
+  },
+  mypageTitle: {
     fontFamily: "'Shippori Mincho', serif",
     color: C.ai,
-    fontSize: 12,
+    fontSize: 22,
     letterSpacing: ".1em",
-    marginBottom: 6,
+    margin: "0 0 16px",
   },
-  savedListRow: { display: "flex", flexDirection: "column", gap: 6, maxHeight: 120, overflowY: "auto" },
-  savedItem: {
+  mypageEmpty: { fontSize: 14, color: C.sumi, opacity: 0.6 },
+  mypageGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+    gap: 16,
+  },
+  mypageCard: {
     display: "flex",
-    gap: 8,
-    alignItems: "baseline",
-    padding: "6px 10px",
-    borderRadius: 8,
-    border: `1px solid ${C.kinariDeep}`,
+    flexDirection: "column",
     background: "#fffdf7",
-    cursor: "pointer",
-    textAlign: "left",
+    borderRadius: 10,
+    border: `1px solid ${C.kinariDeep}`,
+    overflow: "hidden",
+    boxShadow: "0 3px 8px rgba(27,58,91,.12)",
   },
-  savedItemDate: { fontSize: 11, color: C.shu, flexShrink: 0 },
-  savedItemBody: { fontSize: 12, color: C.sumi, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  page: {},
+  mypageThumb: {
+    aspectRatio: "4 / 3",
+    background: C.kinari,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  mypageThumbInner: { width: "100%", height: "100%" },
+  mypageThumbPlaceholder: { fontSize: 12, color: C.sumi, opacity: 0.4 },
+  mypageDate: { fontSize: 11, color: C.shu, padding: "8px 10px 0" },
+  mypageBody: {
+    fontSize: 13,
+    color: C.sumi,
+    padding: "4px 10px 10px",
+    margin: 0,
+    flex: 1,
+    display: "-webkit-box",
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+  },
+  mypageActions: { display: "flex", gap: 6, padding: "0 10px 10px" },
+  mypageOpenBtn: {
+    flex: 1,
+    padding: "7px 0",
+    border: "none",
+    borderRadius: 8,
+    background: `linear-gradient(135deg, ${C.ai}, ${C.asagi})`,
+    color: C.kinari,
+    fontFamily: "'Klee One', serif",
+    fontSize: 12,
+    cursor: "pointer",
+  },
+  mypageDeleteBtn: {
+    padding: "7px 12px",
+    border: `1px solid ${C.shu}`,
+    borderRadius: 8,
+    background: "transparent",
+    color: C.shu,
+    fontFamily: "'Klee One', serif",
+    fontSize: 12,
+    cursor: "pointer",
+  },
   // 画帳(右)
   canvasWrap: {
     position: "relative",

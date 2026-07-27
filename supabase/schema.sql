@@ -6,8 +6,14 @@ create table if not exists diary_entries (
   user_id uuid references auth.users(id) on delete cascade not null,
   body text not null,
   style_key text,
+  artwork_kind text,
+  artwork_data text,
   created_at timestamptz not null default now()
 );
+
+-- 既存テーブルに絵(artwork)保存用の列を追加する場合はこちら(マイページ機能追加時)
+alter table diary_entries add column if not exists artwork_kind text;
+alter table diary_entries add column if not exists artwork_data text;
 
 alter table diary_entries enable row level security;
 
