@@ -32,3 +32,29 @@ create policy "delete_own_diary_entries"
 -- 「Automatically expose new tables」をOFFにしている場合、Data APIロールへの
 -- 権限付与が自動で行われないため、明示的にGRANTする（RLSは上記ポリシーで別途制御）
 grant select, insert, delete on diary_entries to authenticated;
+
+-- 生成した絵を、日記の保存とは別に自動保存するテーブル(マイページの「生成した絵」欄用)
+create table if not exists generated_images (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade not null,
+  artwork_kind text not null,
+  artwork_data text not null,
+  style_key text,
+  created_at timestamptz not null default now()
+);
+
+alter table generated_images enable row level security;
+
+create policy "select_own_generated_images"
+  on generated_images for select
+  using (auth.uid() = user_id);
+
+create policy "insert_own_generated_images"
+  on generated_images for insert
+  with check (auth.uid() = user_id);
+
+create policy "delete_own_generated_images"
+  on generated_images for delete
+  using (auth.uid() = user_id);
+
+grant select, insert, delete on generated_images to authenticated;

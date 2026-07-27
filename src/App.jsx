@@ -49,10 +49,6 @@ const PROMPT_TOP = `あなたは日本の夏を描く、腕利きの絵日記イ
 - 細部の描き込みは2〜3か所にしぼる(例:風鈴の短冊、金魚のひれ、向日葵の種)。他は余白として引く
 - 全体の色数は5〜7色ほどに抑え、調和のとれた配色にする
 
-# 日本の夏の題材(日記に合うものを選ぶ)
-入道雲、夕焼け、天の川、花火、風鈴、金魚、朝顔、向日葵、蝉、麦わら帽子、うちわ、かき氷、縁側、田んぼ、海、灯籠、蚊取り線香、夕立、虹、
-盆踊り、すいか割り、線香花火、浴衣、蝉時雨、七夕飾り、金魚鉢、屋台、打ち水、すだれ
-
 # 作風
 `;
 
@@ -98,6 +94,24 @@ function fitSvgIntoBox(svgStr, x, y, w, h) {
 // ラスター画像(data URL)を、指定の枠に収まる<image>タグに書き換える
 function fitImageIntoBox(dataUrl, x, y, w, h) {
   return `<image x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice" href="${dataUrl}"/>`;
+}
+
+// 絵(SVG文字列 または ラスター画像のdata URL)を、そのままファイルとしてダウンロードする
+function downloadArtwork(kind, data, filenameBase) {
+  if (kind === "raster") {
+    const a = document.createElement("a");
+    a.href = data;
+    a.download = `${filenameBase}.jpg`;
+    a.click();
+    return;
+  }
+  const blob = new Blob([data], { type: "image/svg+xml" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${filenameBase}.svg`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // 日本語テキストを、改行と最大文字数で行に折る
@@ -641,10 +655,54 @@ function AuthForm({ authMode, setAuthMode, authUsername, setAuthUsername, authEm
 }
 
 // マイページ: 保存済みの絵日記の一覧
-function MyPage({ entries, onOpen, onDelete }) {
+function MyPageThumb({ kind, data }) {
+  if (kind === "svg" && data) {
+    return <div style={styles.mypageThumbInner} dangerouslySetInnerHTML={{ __html: data }} />;
+  }
+  if (kind === "raster" && data) {
+    return <img src={data} alt="" style={styles.rasterImg} />;
+  }
+  return <div style={styles.mypageThumbPlaceholder}>絵なし</div>;
+}
+
+function MyPage({ images, onDeleteImage, entries, onOpen, onDelete }) {
   return (
     <section style={styles.mypageWrap} className="card">
       <h2 style={styles.mypageTitle}>マイページ</h2>
+
+      <h3 style={styles.mypageSectionTitle}>生成した絵</h3>
+      {images.length === 0 ? (
+        <p style={styles.mypageEmpty}>まだ生成した絵がありません。「絵にする」を押すと、ここに並びます。</p>
+      ) : (
+        <div style={styles.mypageGrid}>
+          {images.map((im) => (
+            <div key={im.id} style={styles.mypageCard}>
+              <div style={styles.mypageThumb}>
+                <MyPageThumb kind={im.artwork_kind} data={im.artwork_data} />
+              </div>
+              <div style={styles.mypageDate}>
+                {new Date(im.created_at).toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" })}
+              </div>
+              <div style={styles.mypageActions}>
+                <button
+                  style={styles.mypageOpenBtn}
+                  onClick={() => downloadArtwork(im.artwork_kind, im.artwork_data, `絵日記_絵_${im.id.slice(0, 8)}`)}
+                >
+                  ダウンロード
+                </button>
+                <button
+                  style={styles.mypageDeleteBtn}
+                  onClick={() => { if (window.confirm("この絵を削除しますか？")) onDeleteImage(im.id); }}
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h3 style={{ ...styles.mypageSectionTitle, marginTop: 28 }}>保存した絵日記</h3>
       {entries.length === 0 ? (
         <p style={styles.mypageEmpty}>
           まだ保存された絵日記がありません。日記を書いて「日記を保存」を押すと、ここに並びます。
@@ -654,13 +712,7 @@ function MyPage({ entries, onOpen, onDelete }) {
           {entries.map((en) => (
             <div key={en.id} style={styles.mypageCard}>
               <div style={styles.mypageThumb}>
-                {en.artwork_kind === "svg" && en.artwork_data ? (
-                  <div style={styles.mypageThumbInner} dangerouslySetInnerHTML={{ __html: en.artwork_data }} />
-                ) : en.artwork_kind === "raster" && en.artwork_data ? (
-                  <img src={en.artwork_data} alt="" style={styles.rasterImg} />
-                ) : (
-                  <div style={styles.mypageThumbPlaceholder}>絵なし</div>
-                )}
+                <MyPageThumb kind={en.artwork_kind} data={en.artwork_data} />
               </div>
               <div style={styles.mypageDate}>
                 {new Date(en.created_at).toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" })}
@@ -668,6 +720,14 @@ function MyPage({ entries, onOpen, onDelete }) {
               <p style={styles.mypageBody}>{en.body}</p>
               <div style={styles.mypageActions}>
                 <button style={styles.mypageOpenBtn} onClick={() => onOpen(en)}>開く</button>
+                {en.artwork_kind && en.artwork_data && (
+                  <button
+                    style={styles.mypageDeleteBtn}
+                    onClick={() => downloadArtwork(en.artwork_kind, en.artwork_data, `絵日記_${en.id.slice(0, 8)}`)}
+                  >
+                    DL
+                  </button>
+                )}
                 <button
                   style={styles.mypageDeleteBtn}
                   onClick={() => { if (window.confirm("この絵日記を削除しますか？")) onDelete(en.id); }}
@@ -712,6 +772,7 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [savedEntries, setSavedEntries] = useState([]);
   const [savingDiary, setSavingDiary] = useState(false);
+  const [generatedImages, setGeneratedImages] = useState([]);
   const [view, setView] = useState("diary"); // "diary" | "mypage"
 
   useEffect(() => {
@@ -727,6 +788,7 @@ export default function App() {
   useEffect(() => {
     if (!supabase || !session) {
       setSavedEntries([]);
+      setGeneratedImages([]);
       return;
     }
     supabase
@@ -737,7 +799,26 @@ export default function App() {
       .then(({ data, error: err }) => {
         if (!err && data) setSavedEntries(data);
       });
+    supabase
+      .from("generated_images")
+      .select("id, artwork_kind, artwork_data, style_key, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50)
+      .then(({ data, error: err }) => {
+        if (!err && data) setGeneratedImages(data);
+      });
   }, [session]);
+
+  // 絵を生成するたびに、マイページの「生成した絵」欄へ自動保存する
+  async function saveGeneratedImageToCloud(result) {
+    if (!supabase || !session) return;
+    const { data, error: err } = await supabase
+      .from("generated_images")
+      .insert({ user_id: session.user.id, artwork_kind: result.kind, artwork_data: result.data, style_key: styleKey })
+      .select()
+      .single();
+    if (!err && data) setGeneratedImages((prev) => [data, ...prev].slice(0, 50));
+  }
 
   // マイページ: 保存済みの絵日記を編集画面に呼び出す
   function openSavedEntry(en) {
@@ -757,6 +838,17 @@ export default function App() {
       return;
     }
     setSavedEntries((prev) => prev.filter((en) => en.id !== id));
+  }
+
+  // マイページ: 生成した絵を削除する
+  async function deleteGeneratedImage(id) {
+    if (!supabase) return;
+    const { error: err } = await supabase.from("generated_images").delete().eq("id", id);
+    if (err) {
+      setError("削除に失敗しました(" + err.message + ")。");
+      return;
+    }
+    setGeneratedImages((prev) => prev.filter((en) => en.id !== id));
   }
 
   async function handleSignUp(e) {
@@ -964,6 +1056,7 @@ export default function App() {
       setArtwork(result);
       setSavedText(body);
       setEntries((prev) => [{ artwork: result, text: body, date: { ...dateRef.current } }, ...prev].slice(0, 12));
+      saveGeneratedImageToCloud(result);
     } catch (e) {
       setError("通信に失敗しました。時間をおいて、もう一度ためしてみてください。");
     } finally {
@@ -1108,7 +1201,13 @@ export default function App() {
       />
 
       {view === "mypage" && (
-        <MyPage entries={savedEntries} onOpen={openSavedEntry} onDelete={deleteSavedEntry} />
+        <MyPage
+          images={generatedImages}
+          onDeleteImage={deleteGeneratedImage}
+          entries={savedEntries}
+          onOpen={openSavedEntry}
+          onDelete={deleteSavedEntry}
+        />
       )}
 
       {view === "diary" && (
@@ -1592,6 +1691,15 @@ const styles = {
     fontSize: 22,
     letterSpacing: ".1em",
     margin: "0 0 16px",
+  },
+  mypageSectionTitle: {
+    fontFamily: "'Shippori Mincho', serif",
+    color: C.ai,
+    fontSize: 15,
+    letterSpacing: ".08em",
+    margin: "0 0 12px",
+    borderBottom: `1px dashed ${C.shu}66`,
+    paddingBottom: 8,
   },
   mypageEmpty: { fontSize: 14, color: C.sumi, opacity: 0.6 },
   mypageGrid: {
