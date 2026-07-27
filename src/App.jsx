@@ -266,47 +266,21 @@ function limitMessage(err) {
   return "Claudeの利用上限(5時間ごとの枠)に達したため、絵を描けませんでした。" + when + " 枠が回復してから、または「軽量」モデルで、もう一度お試しください。";
 }
 
-// 花火の「ドン」と風鈴の「チリン」を Web Audio API でその場合成する(音源ファイル不要)
+// 花火・風鈴の効果音(録音したmp3を再生する)
+const SFX_LAUNCH = "/audio/launch.mp3"; // 打ち上げ(ヒュー)
+const SFX_BOOM = "/audio/boom.mp3"; // 爆発(ドン)
+const SFX_CHIME = "/audio/chime.mp3"; // 風鈴(チリン)
+
 function useFestivalAudio() {
   const ctxRef = useRef(null);
-  const reverbRef = useRef(null);
 
+  // パン(左右定位)が必要な音だけ、Web Audio経由でステレオパンをかける
   function ensureCtx() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     if (!ctxRef.current) ctxRef.current = new AC();
     if (ctxRef.current.state === "suspended") ctxRef.current.resume();
     return ctxRef.current;
-  }
-
-  // 遠くの花火の反響のような、簡易リバーブ(インパルス応答をその場生成)
-  function ensureReverb(ctx) {
-    if (!reverbRef.current) {
-      const rate = ctx.sampleRate;
-      const len = Math.floor(rate * 1.8);
-      const impulse = ctx.createBuffer(2, len, rate);
-      for (let ch = 0; ch < 2; ch++) {
-        const data = impulse.getChannelData(ch);
-        for (let i = 0; i < len; i++) {
-          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
-        }
-      }
-      const convolver = ctx.createConvolver();
-      convolver.buffer = impulse;
-      const wetGain = ctx.createGain();
-      wetGain.gain.value = 0.32;
-      convolver.connect(wetGain).connect(ctx.destination);
-      reverbRef.current = convolver;
-    }
-    return reverbRef.current;
-  }
-
-  function noiseBuffer(ctx, seconds, shape = (i, n) => 1 - i / n) {
-    const size = Math.max(1, Math.floor(ctx.sampleRate * seconds));
-    const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < size; i++) data[i] = (Math.random() * 2 - 1) * shape(i, size);
-    return buffer;
   }
 
   // 最初のクリック/タップで音を解禁(ブラウザの自動再生制限に対応)
@@ -316,149 +290,30 @@ function useFestivalAudio() {
     return () => window.removeEventListener("pointerdown", unlock);
   }, []);
 
-  function playBoom(pan = 0, vol = 1) {
-    const ctx = ensureCtx();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const reverb = ensureReverb(ctx);
-    const out = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.destination;
-    if (out !== ctx.destination) {
-      out.pan.value = Math.max(-1, Math.min(1, pan));
-      out.connect(ctx.destination);
+  function playClip(url, { vol = 1, pan = 0 } = {}) {
+    const audio = new Audio(url);
+    audio.volume = Math.max(0, Math.min(1, vol));
+
+    if (pan !== 0) {
+      const ctx = ensureCtx();
+      if (ctx && ctx.createStereoPanner) {
+        try {
+          const src = ctx.createMediaElementSource(audio);
+          const panner = ctx.createStereoPanner();
+          panner.pan.value = Math.max(-1, Math.min(1, pan));
+          src.connect(panner).connect(ctx.destination);
+        } catch {
+          // パン付与に失敗しても、通常再生にフォールバックする
+        }
+      }
     }
 
-    // 鋭い「バチッ」という初期の破裂トランジェント
-    const crack = ctx.createBufferSource();
-    crack.buffer = noiseBuffer(ctx, 0.05, (i, n) => Math.pow(1 - i / n, 0.5));
-    const crackGain = ctx.createGain();
-    crackGain.gain.setValueAtTime(0.45 * vol, now);
-    crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-    crack.connect(crackGain).connect(out);
-    crackGain.connect(reverb);
-    crack.start(now);
-
-    // 低音の「ドン」という腹に響く一撃
-    const thump = ctx.createOscillator();
-    thump.type = "sine";
-    thump.frequency.setValueAtTime(150, now);
-    thump.frequency.exponentialRampToValueAtTime(34, now + 0.35);
-    const thumpGain = ctx.createGain();
-    thumpGain.gain.setValueAtTime(0.6 * vol, now);
-    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-    thump.connect(thumpGain).connect(out);
-    thumpGain.connect(reverb);
-    thump.start(now);
-    thump.stop(now + 0.42);
-
-    // 尾を引くシューというノイズの減衰
-    const noise = ctx.createBufferSource();
-    noise.buffer = noiseBuffer(ctx, 1.1, (i, n) => Math.pow(1 - i / n, 2.4));
-    const filter = ctx.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.Q.value = 0.6;
-    filter.frequency.setValueAtTime(2400, now);
-    filter.frequency.exponentialRampToValueAtTime(260, now + 0.8);
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.0001, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.32 * vol, now + 0.025);
-    noiseGain.gain.exponentialRampToValueAtTime(0.0006, now + 1.05);
-    noise.connect(filter).connect(noiseGain).connect(out);
-    noiseGain.connect(reverb);
-    noise.start(now);
-    noise.stop(now + 1.1);
-
-    // 燃えかすがはぜる、ランダムな「パチ、パチ」
-    const crackleCount = 10 + Math.floor(Math.random() * 6);
-    for (let i = 0; i < crackleCount; i++) {
-      const t = now + 0.08 + Math.random() * 1.1;
-      const dur = 0.02 + Math.random() * 0.03;
-      const src = ctx.createBufferSource();
-      src.buffer = noiseBuffer(ctx, dur, (j, n) => 1 - j / n);
-      const bp = ctx.createBiquadFilter();
-      bp.type = "bandpass";
-      bp.frequency.value = 2500 + Math.random() * 3500;
-      bp.Q.value = 4;
-      const g = ctx.createGain();
-      const amp = Math.max(0.01, (0.08 + Math.random() * 0.1) * (1 - (t - now) / 1.3)) * vol;
-      g.gain.setValueAtTime(amp, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-      src.connect(bp).connect(g).connect(out);
-      g.connect(reverb);
-      src.start(t);
-    }
+    audio.play().catch(() => {});
   }
 
-  function playChime() {
-    const ctx = ensureCtx();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const reverb = ensureReverb(ctx);
-    const base = 900 + Math.random() * 500; // 毎回わずかに音程を変えて単調さを避ける
-    const partials = [1, 2.76, 4.18, 5.4]; // ガラス風鈴らしい非整数倍音
-
-    partials.forEach((ratio, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.value = base * ratio;
-      const gain = ctx.createGain();
-      const amp = 0.22 / (i + 1.3);
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(amp, now + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.8 - i * 0.25);
-      osc.connect(gain).connect(ctx.destination);
-      gain.connect(reverb);
-      osc.start(now);
-      osc.stop(now + 1.85);
-    });
-
-    // ガラスが触れ合う一瞬の高音トランジェント
-    const tick = ctx.createBufferSource();
-    tick.buffer = noiseBuffer(ctx, 0.02, (i, n) => 1 - i / n);
-    const tickFilter = ctx.createBiquadFilter();
-    tickFilter.type = "highpass";
-    tickFilter.frequency.value = 4000;
-    const tickGain = ctx.createGain();
-    tickGain.gain.setValueAtTime(0.15, now);
-    tickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
-    tick.connect(tickFilter).connect(tickGain).connect(ctx.destination);
-    tick.start(now);
-  }
-
-  function playLaunch(vol = 1) {
-    const ctx = ensureCtx();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const dur = 0.58;
-
-    // ヒュルル…と上る笛のような音
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(380, now);
-    osc.frequency.exponentialRampToValueAtTime(1500, now + dur);
-    const oscGain = ctx.createGain();
-    oscGain.gain.setValueAtTime(0.0001, now);
-    oscGain.gain.exponentialRampToValueAtTime(0.13 * vol, now + 0.05);
-    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    osc.connect(oscGain).connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + dur + 0.02);
-
-    // シューッと空気を切るノイズ
-    const noise = ctx.createBufferSource();
-    noise.buffer = noiseBuffer(ctx, dur, () => 1);
-    const filter = ctx.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.Q.value = 0.9;
-    filter.frequency.setValueAtTime(1200, now);
-    filter.frequency.exponentialRampToValueAtTime(4200, now + dur);
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.0001, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.1 * vol, now + 0.06);
-    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    noise.connect(filter).connect(noiseGain).connect(ctx.destination);
-    noise.start(now);
-    noise.stop(now + dur + 0.02);
-  }
+  const playBoom = (pan = 0, vol = 1) => playClip(SFX_BOOM, { vol, pan });
+  const playChime = () => playClip(SFX_CHIME, { vol: 1 });
+  const playLaunch = (vol = 1) => playClip(SFX_LAUNCH, { vol });
 
   return { playBoom, playChime, playLaunch };
 }
@@ -993,9 +848,9 @@ export default function App() {
       const lim = limitMessage(data.error);
       setError(
         lim ||
-          "絵を描くところで止まってしまいました(" +
-            (data.error.message || data.error.type || "error") +
-            ")。もう一度ためしてみてください。"
+        "絵を描くところで止まってしまいました(" +
+        (data.error.message || data.error.type || "error") +
+        ")。もう一度ためしてみてください。"
       );
       return null;
     }
@@ -1211,162 +1066,162 @@ export default function App() {
       )}
 
       {view === "diary" && (
-      <>
-      <main style={styles.page} className="page">
-        {/* 日記(書くところ)— 左 */}
-        <section style={styles.writeWrap} className="card">
-          <div style={styles.dateBar}>
-            <span style={styles.dateMain}>{d.y}年 {d.md}</span>
-            <span style={styles.dateDow}>{d.dow}曜日</span>
-          </div>
-
-          <div style={styles.ruled}>
-            <textarea
-              style={styles.textarea}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="金魚すくいをして、りんご飴を食べた。&#10;夜空に大きな花火が上がって、みんなで歓声をあげた…"
-              maxLength={600}
-            />
-          </div>
-
-          <div style={styles.styleRow}>
-            <span style={styles.styleLabel}>作風</span>
-            {STYLES.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => setStyleKey(s.key)}
-                style={{ ...styles.stylePill, ...(styleKey === s.key ? styles.stylePillOn : {}) }}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-
-          <div style={styles.styleRow}>
-            <span style={styles.styleLabel}>エンジン</span>
-            {ENGINES.map((en) => (
-              <button
-                key={en.key}
-                onClick={() => setEngineKey(en.key)}
-                style={{ ...styles.stylePill, ...(engineKey === en.key ? styles.stylePillOn : {}) }}
-              >
-                {en.label}
-              </button>
-            ))}
-            <span style={styles.modelHint}>
-              {engineKey === "pollinations" ? "APIキー不要・低コスト" : "SVGで描き、なめらかに拡大できる"}
-            </span>
-          </div>
-
-          {engineKey === "claude" && (
-            <div style={styles.styleRow}>
-              <span style={styles.styleLabel}>モデル</span>
-              {MODELS.map((m) => (
-                <button
-                  key={m.key}
-                  onClick={() => setModelKey(m.key)}
-                  style={{ ...styles.stylePill, ...(modelKey === m.key ? styles.stylePillOn : {}) }}
-                >
-                  {m.label}
-                </button>
-              ))}
-              <span style={styles.modelHint}>
-                {modelKey === "sonnet" ? "描写重視" : "上限にやさしい"}
-              </span>
-            </div>
-          )}
-
-          <div style={styles.controls}>
-            <span style={styles.count}>{text.length} / 600</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button style={styles.saveDiaryBtn} onClick={saveDiaryToCloud} disabled={savingDiary}>
-                {savingDiary ? "保存中…" : "日記を保存"}
-              </button>
-              <button
-                style={{ ...styles.drawBtn, ...(loading ? styles.drawBtnOff : {}) }}
-                onClick={draw}
-                disabled={loading}
-              >
-                {loading ? "描いています…" : "絵にする"}
-              </button>
-            </div>
-          </div>
-
-          {error && <p style={styles.error}>{error}</p>}
-        </section>
-
-        {/* 絵(絵の出るところ)— 右 */}
-        <section style={styles.canvasWrap} className="card">
-          <div style={styles.canvas}>
-            {loading && (
-              <div style={styles.placeholder}>
-                <div className="ink" />
-                <p style={styles.placeholderText}>絵を描いています…</p>
+        <>
+          <main style={styles.page} className="page">
+            {/* 日記(書くところ)— 左 */}
+            <section style={styles.writeWrap} className="card">
+              <div style={styles.dateBar}>
+                <span style={styles.dateMain}>{d.y}年 {d.md}</span>
+                <span style={styles.dateDow}>{d.dow}曜日</span>
               </div>
-            )}
-            {!loading && artwork && artwork.kind === "svg" && (
-              <div
-                className="svg-in"
-                style={styles.svgHost}
-                dangerouslySetInnerHTML={{ __html: artwork.data }}
-              />
-            )}
-            {!loading && artwork && artwork.kind === "raster" && (
-              <div className="svg-in" style={styles.svgHost}>
-                <img src={artwork.data} alt="生成された絵" style={styles.rasterImg} />
-              </div>
-            )}
-            {!loading && !artwork && (
-              <div style={styles.placeholder}>
-                <div className="unmei" aria-hidden="true">画帳</div>
-                <p style={styles.placeholderText}>ここに、きょうの絵が出ます</p>
-              </div>
-            )}
-          </div>
 
-          {artwork && !loading && (
-            <div style={styles.saveRow}>
-              <button style={styles.saveMain} onClick={saveArtwork}>
-                作品を保存(絵＋日記)
-              </button>
-              <button style={styles.saveSub} onClick={saveRaw}>
-                絵だけ保存
-              </button>
-            </div>
-          )}
-        </section>
-      </main>
-
-      {/* しおり(このセッションで描いた絵) */}
-      {entries.length > 1 && (
-        <section style={styles.shelf}>
-          <div style={styles.shelfLabel}>しおり</div>
-          <div style={styles.shelfRow}>
-            {entries.map((en, i) =>
-              en.artwork.kind === "svg" ? (
-                <button
-                  key={i}
-                  style={styles.thumb}
-                  onClick={() => { setArtwork(en.artwork); setText(en.text); setSavedText(en.text); }}
-                  dangerouslySetInnerHTML={{ __html: en.artwork.data }}
-                  aria-label={`${en.date.md}の絵`}
+              <div style={styles.ruled}>
+                <textarea
+                  style={styles.textarea}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="金魚すくいをして、りんご飴を食べた。&#10;夜空に大きな花火が上がって、みんなで歓声をあげた…"
+                  maxLength={600}
                 />
-              ) : (
-                <button
-                  key={i}
-                  style={styles.thumb}
-                  onClick={() => { setArtwork(en.artwork); setText(en.text); setSavedText(en.text); }}
-                  aria-label={`${en.date.md}の絵`}
-                >
-                  <img src={en.artwork.data} alt="" style={styles.rasterImg} />
-                </button>
-              )
-            )}
-          </div>
-        </section>
-      )}
-      </>
+              </div>
+
+              <div style={styles.styleRow}>
+                <span style={styles.styleLabel}>作風</span>
+                {STYLES.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => setStyleKey(s.key)}
+                    style={{ ...styles.stylePill, ...(styleKey === s.key ? styles.stylePillOn : {}) }}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={styles.styleRow}>
+                <span style={styles.styleLabel}>エンジン</span>
+                {ENGINES.map((en) => (
+                  <button
+                    key={en.key}
+                    onClick={() => setEngineKey(en.key)}
+                    style={{ ...styles.stylePill, ...(engineKey === en.key ? styles.stylePillOn : {}) }}
+                  >
+                    {en.label}
+                  </button>
+                ))}
+                <span style={styles.modelHint}>
+                  {engineKey === "pollinations" ? "APIキー不要・低コスト" : "SVGで描き、なめらかに拡大できる"}
+                </span>
+              </div>
+
+              {engineKey === "claude" && (
+                <div style={styles.styleRow}>
+                  <span style={styles.styleLabel}>モデル</span>
+                  {MODELS.map((m) => (
+                    <button
+                      key={m.key}
+                      onClick={() => setModelKey(m.key)}
+                      style={{ ...styles.stylePill, ...(modelKey === m.key ? styles.stylePillOn : {}) }}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                  <span style={styles.modelHint}>
+                    {modelKey === "sonnet" ? "描写重視" : "上限にやさしい"}
+                  </span>
+                </div>
+              )}
+
+              <div style={styles.controls}>
+                <span style={styles.count}>{text.length} / 600</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={styles.saveDiaryBtn} onClick={saveDiaryToCloud} disabled={savingDiary}>
+                    {savingDiary ? "保存中…" : "マイページに日記を保存"}
+                  </button>
+                  <button
+                    style={{ ...styles.drawBtn, ...(loading ? styles.drawBtnOff : {}) }}
+                    onClick={draw}
+                    disabled={loading}
+                  >
+                    {loading ? "描いています…" : "絵にする"}
+                  </button>
+                </div>
+              </div>
+
+              {error && <p style={styles.error}>{error}</p>}
+            </section>
+
+            {/* 絵(絵の出るところ)— 右 */}
+            <section style={styles.canvasWrap} className="card">
+              <div style={styles.canvas}>
+                {loading && (
+                  <div style={styles.placeholder}>
+                    <div className="ink" />
+                    <p style={styles.placeholderText}>絵を描いています…</p>
+                  </div>
+                )}
+                {!loading && artwork && artwork.kind === "svg" && (
+                  <div
+                    className="svg-in"
+                    style={styles.svgHost}
+                    dangerouslySetInnerHTML={{ __html: artwork.data }}
+                  />
+                )}
+                {!loading && artwork && artwork.kind === "raster" && (
+                  <div className="svg-in" style={styles.svgHost}>
+                    <img src={artwork.data} alt="生成された絵" style={styles.rasterImg} />
+                  </div>
+                )}
+                {!loading && !artwork && (
+                  <div style={styles.placeholder}>
+                    <div className="unmei" aria-hidden="true">画帳</div>
+                    <p style={styles.placeholderText}>ここに、きょうの絵が出ます</p>
+                  </div>
+                )}
+              </div>
+
+              {artwork && !loading && (
+                <div style={styles.saveRow}>
+                  <button style={styles.saveMain} onClick={saveArtwork}>
+                    作品をダウンロード(絵＋日記)
+                  </button>
+                  <button style={styles.saveSub} onClick={saveRaw}>
+                    絵だけ保存
+                  </button>
+                </div>
+              )}
+            </section>
+          </main>
+
+          {/* しおり(このセッションで描いた絵) */}
+          {entries.length > 1 && (
+            <section style={styles.shelf}>
+              <div style={styles.shelfLabel}>しおり</div>
+              <div style={styles.shelfRow}>
+                {entries.map((en, i) =>
+                  en.artwork.kind === "svg" ? (
+                    <button
+                      key={i}
+                      style={styles.thumb}
+                      onClick={() => { setArtwork(en.artwork); setText(en.text); setSavedText(en.text); }}
+                      dangerouslySetInnerHTML={{ __html: en.artwork.data }}
+                      aria-label={`${en.date.md}の絵`}
+                    />
+                  ) : (
+                    <button
+                      key={i}
+                      style={styles.thumb}
+                      onClick={() => { setArtwork(en.artwork); setText(en.text); setSavedText(en.text); }}
+                      aria-label={`${en.date.md}の絵`}
+                    >
+                      <img src={en.artwork.data} alt="" style={styles.rasterImg} />
+                    </button>
+                  )
+                )}
+              </div>
+            </section>
+          )}
+        </>
       )}
 
       <footer style={styles.footer}>夜空に花火、軒に提灯</footer>
