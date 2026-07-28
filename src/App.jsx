@@ -281,7 +281,6 @@ function useFestivalAudio(masterVolRef) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     if (!ctxRef.current) ctxRef.current = new AC();
-    if (ctxRef.current.state === "suspended") ctxRef.current.resume();
     return ctxRef.current;
   }
 
@@ -320,29 +319,39 @@ function useFestivalAudio(masterVolRef) {
       setTimeout(() => audio.pause(), Math.max(0, stopAt - startAt) * 1000);
     }
 
-    if (ctx && (pan !== 0 || effVol > 1)) {
-      try {
-        const src = ctx.createMediaElementSource(audio);
-        const gain = ctx.createGain();
-        gain.gain.value = effVol;
-        let node = src.connect(gain);
-        if (pan !== 0 && ctx.createStereoPanner) {
-          const panner = ctx.createStereoPanner();
-          panner.pan.value = Math.max(-1, Math.min(1, pan));
-          node = gain.connect(panner);
-        } else {
-          node = gain;
+    // AudioContext.resume()は非同期のため、待たずに再生を始めてしまうと
+    // (特に短い効果音の場合)再生の頭が無音のまま失われ、「音が小さい/鳴らないことがある」
+    // 原因になる。suspended中は resume の完了を待ってから実際の再生を始める
+    const start = () => {
+      if (ctx && (pan !== 0 || effVol > 1)) {
+        try {
+          const src = ctx.createMediaElementSource(audio);
+          const gain = ctx.createGain();
+          gain.gain.value = effVol;
+          let node = src.connect(gain);
+          if (pan !== 0 && ctx.createStereoPanner) {
+            const panner = ctx.createStereoPanner();
+            panner.pan.value = Math.max(-1, Math.min(1, pan));
+            node = gain.connect(panner);
+          } else {
+            node = gain;
+          }
+          node.connect(ctx.destination);
+          audio.play().catch(() => { });
+          return;
+        } catch {
+          // 失敗した場合は、通常のaudio.volumeでの再生にフォールバックする
         }
-        node.connect(ctx.destination);
-        audio.play().catch(() => { });
-        return audio;
-      } catch {
-        // 失敗した場合は、通常のaudio.volumeでの再生にフォールバックする
       }
-    }
+      audio.volume = Math.max(0, Math.min(1, effVol));
+      audio.play().catch(() => { });
+    };
 
-    audio.volume = Math.max(0, Math.min(1, effVol));
-    audio.play().catch(() => { });
+    if (ctx && ctx.state === "suspended") {
+      ctx.resume().then(start).catch(start);
+    } else {
+      start();
+    }
     return audio;
   }
 
