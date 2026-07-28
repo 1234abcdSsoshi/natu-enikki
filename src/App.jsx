@@ -272,6 +272,9 @@ const CHIME_REST_MS = 5000; // 風鈴の音を鳴らす間隔(この時間内は
 function useFestivalAudio(masterVolRef) {
   const ctxRef = useRef(null);
   const lastChimeRef = useRef(0);
+  // 再生中のAudioをどこからも参照していないと、再生の途中でもGC(ガベージコレクション)の対象になり
+  // 音が途中で止まってしまうことがあるため、再生が終わるまでここで参照を保持しておく
+  const activeAudioRef = useRef(new Set());
 
   // パン(左右定位)が必要な音だけ、Web Audio経由でステレオパンをかける
   function ensureCtx() {
@@ -301,6 +304,12 @@ function useFestivalAudio(masterVolRef) {
 
     const audio = new Audio(url);
     const ctx = ensureCtx();
+
+    // 再生が終わる(または明示的に止める)まで参照を保持し、終わったら手放す
+    activeAudioRef.current.add(audio);
+    const release = () => activeAudioRef.current.delete(audio);
+    audio.addEventListener("ended", release);
+    audio.addEventListener("pause", release);
 
     if (startAt > 0) {
       audio.currentTime = startAt;
