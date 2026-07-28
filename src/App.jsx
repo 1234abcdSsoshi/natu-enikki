@@ -355,39 +355,59 @@ function useFireworkRays(count, minLenFrac, maxLenFrac, radius) {
 
 // 花火の見た目のプリセット。外側〜内側へ何重かの「火花のリング」を重ねて1発を作る。
 // 外側ほど火花を大きく・数を多く、内側ほど小さく・まばらにすることで奥行きを出す。
+// accent: true のリングは、基本色とは違う色(暖色のアクセント)で強弱をつける。
+const FW_ACCENT = "#FFE7B0";
 const FW_RING_PRESETS = {
   // 標準(遠景で自動に咲く花火): 外側+内側の2重構成
   standard: [
-    { radius: 100, count: 30, dotR: 3.2, tailFrac: 0.38 },
-    { radius: 55, count: 16, dotR: 1.8, tailFrac: 0.42 },
+    { radius: 100, count: 30, dotR: 3.2, tailFrac: 0.5 },
+    { radius: 55, count: 16, dotR: 1.8, tailFrac: 0.55 },
   ],
   // マウスクリックで咲く花火: 標準と同じく2重構成
   click: [
-    { radius: 95, count: 24, dotR: 3, tailFrac: 0.38 },
-    { radius: 50, count: 14, dotR: 1.7, tailFrac: 0.42 },
+    { radius: 95, count: 24, dotR: 3, tailFrac: 0.5 },
+    { radius: 50, count: 14, dotR: 1.7, tailFrac: 0.55 },
   ],
-  // 長押しMAXで咲く特別な花火: 外側・中間・内側の3重構成(外側ほど大きく、内側ほど小さく)
+  // 長押しMAXで咲く特別な花火: 外側・中間・内側の3重構成(外側ほど大きく、内側ほど小さく)。
+  // 内側だけ色を変えて、外側と強弱(コントラスト)をつける。
   grand: [
-    { radius: 125, count: 32, dotR: 4, tailFrac: 0.4 },
-    { radius: 75, count: 14, dotR: 2.4, tailFrac: 0.36 },
-    { radius: 35, count: 10, dotR: 1.3, tailFrac: 0.32 },
+    { radius: 125, count: 32, dotR: 4, tailFrac: 0.5 },
+    { radius: 75, count: 14, dotR: 2.4, tailFrac: 0.46 },
+    { radius: 35, count: 10, dotR: 1.3, tailFrac: 0.4, accent: true },
   ],
 };
 
-// 1つのリング分の火花(丸い粒+尾を引く軌跡)を描く
-function SparkRing({ rays, ring }) {
+// 1つのリング分の火花を描く。尾は「1本の線」ではなく、先端(頭)ほど大きく明るく、
+// 奥ほど小さく淡くなる粒を連ねることで、流星群のようなメリハリのある尾に見せる。
+function SparkRing({ rays, ring, color }) {
   if (!ring || !ring.count) return null;
+  const TRAIL = 4; // 頭を含む、尾に並べる粒の数
   return rays.map((r, i) => {
     const a = (r.angle * Math.PI) / 180;
+    const innerT = 1 - ring.tailFrac;
+    const dots = [];
+    for (let k = 0; k <= TRAIL; k++) {
+      const t = innerT + (1 - innerT) * (k / TRAIL);
+      const px = Math.cos(a) * r.len * t, py = Math.sin(a) * r.len * t;
+      const isHead = k === TRAIL;
+      const grow = k / TRAIL; // 0(尾の奥)〜1(頭)
+      dots.push(
+        <circle
+          key={k}
+          cx={px}
+          cy={py}
+          r={isHead ? ring.dotR : Math.max(ring.dotR * (0.25 + 0.5 * grow), 0.6)}
+          fill={isHead ? "#fff" : color}
+          opacity={isHead ? 0.95 : 0.22 + 0.55 * grow}
+        />
+      );
+    }
     const tipX = Math.cos(a) * r.len, tipY = Math.sin(a) * r.len;
-    const tailX = Math.cos(a) * r.len * (1 - ring.tailFrac), tailY = Math.sin(a) * r.len * (1 - ring.tailFrac);
     return (
       <g key={i}>
-        {/* 尾: 火花のすぐ後ろに短く伸びる軌跡(外へ広がりながら尾を引くように見せる) */}
-        <line x1={tailX} y1={tailY} x2={tipX} y2={tipY} stroke="currentColor" strokeWidth={Math.max(ring.dotR * 0.55, 0.8)} strokeOpacity="0.8" strokeLinecap="round" />
-        {/* 火花: 先端の丸い粒 */}
-        <circle cx={tipX} cy={tipY} r={ring.dotR + 1.3} fill="currentColor" opacity="0.5" />
-        <circle cx={tipX} cy={tipY} r={ring.dotR} fill="#fff" opacity="0.95" />
+        {/* 頭のすぐ後ろの淡いグロー */}
+        <circle cx={tipX} cy={tipY} r={ring.dotR + 1.4} fill={color} opacity="0.45" />
+        {dots}
       </g>
     );
   });
@@ -395,7 +415,7 @@ function SparkRing({ rays, ring }) {
 
 // 花火の1発を、外側〜内側の「火花のリング」を重ねたSVGで描く。
 // variant: "standard"=遠景で自動に咲く花火(2重)、"click"=クリックで咲く花火(2重)、
-//          "grand"=長押しを最大まで溜めたときだけの特別な花火(3重)
+//          "grand"=長押しを最大まで溜めたときだけの特別な花火(3重・内側だけ色違い)
 function FireworkBurst({ color, variant = "standard" }) {
   const rings = FW_RING_PRESETS[variant] || FW_RING_PRESETS.standard;
   const [ring0, ring1, ring2] = [rings[0], rings[1], rings[2] || null];
@@ -407,6 +427,9 @@ function FireworkBurst({ color, variant = "standard" }) {
 
   const maxRadius = Math.max(ring0.radius, ring1.radius, ring2 ? ring2.radius : 0);
   const half = maxRadius + 35;
+  const coreR = ring0.dotR;
+  // 光源の芯からきらめく、細かく密なフレア光条(長さはランダムにばらつかせ、繊細な輝きにする)
+  const flareRays = useFireworkRays(44, 0.35, 1, coreR * 6);
 
   return (
     <svg
@@ -415,10 +438,41 @@ function FireworkBurst({ color, variant = "standard" }) {
       style={{ color }}
       aria-hidden="true"
     >
-      <SparkRing rays={rays0} ring={ring0} />
-      <SparkRing rays={rays1} ring={ring1} />
-      <SparkRing rays={rays2} ring={ring2} />
-      <circle r={ring0.dotR + 2} fill="#fff" />
+      <SparkRing rays={rays0} ring={ring0} color={color} />
+      <SparkRing rays={rays1} ring={ring1} color={color} />
+      <SparkRing rays={rays2} ring={ring2} color={ring2?.accent ? FW_ACCENT : color} />
+
+      {/* 中心: 光り輝く光源(段階的なやわらかい光暈+細かいフレア光条+輝く芯) */}
+      <circle r={coreR * 8} fill="#fff" opacity="0.06" />
+      <circle r={coreR * 6} fill="#fff" opacity="0.09" />
+      <circle r={coreR * 4.4} fill="#fff" opacity="0.14" />
+      <circle r={coreR * 3.1} fill="#fff" opacity="0.22" />
+      <circle r={coreR * 2} fill="#fff" opacity="0.38" />
+      <circle r={coreR * 1.2} fill="#fff" opacity="0.65" />
+      {flareRays.map((r, i) => {
+        const a = (r.angle * Math.PI) / 180;
+        const tipX = Math.cos(a) * r.len, tipY = Math.sin(a) * r.len;
+        const midX = Math.cos(a) * r.len * 0.35, midY = Math.sin(a) * r.len * 0.35;
+        return (
+          <g key={i}>
+            <line x1={0} y1={0} x2={midX} y2={midY} stroke="#fff" strokeWidth="0.9" strokeOpacity="0.9" strokeLinecap="round" />
+            <line x1={midX} y1={midY} x2={tipX} y2={tipY} stroke="#fff" strokeWidth="0.6" strokeOpacity="0.3" strokeLinecap="round" />
+          </g>
+        );
+      })}
+      {[0, 45, 90, 135].map((deg) => {
+        const a = (deg * Math.PI) / 180;
+        const len = coreR * 5.5;
+        const dx = Math.cos(a) * len, dy = Math.sin(a) * len;
+        return (
+          <line
+            key={deg}
+            x1={-dx} y1={-dy} x2={dx} y2={dy}
+            stroke="#fff" strokeOpacity="0.4" strokeWidth={coreR * 0.3} strokeLinecap="round"
+          />
+        );
+      })}
+      <circle r={coreR + 1.4} fill="#fff" />
     </svg>
   );
 }
@@ -481,12 +535,6 @@ function AmbientDeco({ onBoom }) {
       {SPLASHES.map((s, i) => (
         <span key={i} className="splash" style={{ left: s.left, animationDelay: s.d }} />
       ))}
-
-      <div className="sudare">
-        {Array.from({ length: 9 }).map((_, i) => (
-          <span key={i} style={{ left: `${i * 11 + 2}%` }} />
-        ))}
-      </div>
     </>
   );
 }
@@ -1524,15 +1572,6 @@ const css = `
   100% { opacity: 0; }
 }
 
-/* すだれ(竹の縦すのこ+編み糸の横線で、それらしく見せる) */
-.sudare { position: absolute; top: 0; left: 0; width: 96px; height: 150px; opacity: .4; transform-origin: top center; animation: sway 6s ease-in-out infinite; }
-.sudare span { position: absolute; top: 0; width: 3px; height: 100%; background: linear-gradient(180deg, rgba(230,200,150,.75), rgba(180,140,90,.35)); border-radius: 1.5px; }
-.sudare::before, .sudare::after {
-  content: ''; position: absolute; left: 0; right: 0; height: 2px;
-  background: rgba(90,60,30,.55);
-}
-.sudare::before { top: 22%; } .sudare::after { top: 68%; }
-
 /* ── 風鈴 ── */
 .furin { position: absolute; top: 0; right: 30px; width: 42px; z-index: 4; transform-origin: top center; animation: sway 4.5s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(127,198,214,.5)); }
 .furin-string { width: 2px; height: 52px; margin: 0 auto; background: rgba(255,255,255,.5); }
@@ -1599,7 +1638,7 @@ textarea:focus { outline: 2px solid ${C.asagi}; outline-offset: 2px; }
 button:focus-visible { outline: 2px solid ${C.shu}; outline-offset: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .click-fw, .fw-launch, .charge-ring, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash, .sudare { animation: none !important; transition: none !important; }
+  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .click-fw, .fw-launch, .charge-ring, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash { animation: none !important; transition: none !important; }
 }
 `;
 
