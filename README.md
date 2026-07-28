@@ -1,7 +1,7 @@
 # 夏祭りの絵日記 🎆
 
-日記を書くと、Claude がその情景を読み取って日本の夏祭りの SVG イラストに描き、
-絵と日記を 1 枚の作品として保存できるアプリです。（React + Vite）
+日記を書くと、Gemini（または無料の Pollinations）がその情景を読み取って
+日本の夏祭りのイラストに描き、絵と日記を 1 枚の作品として保存できるアプリです。（React + Vite）
 
 ---
 
@@ -19,8 +19,8 @@
 
 4. APIキーを設定
    - `.env.example` を **`.env`** という名前でコピー
-   - `.env` を開き、`ANTHROPIC_API_KEY` にあなたの Anthropic APIキーを入れる
-   - キーは https://console.anthropic.com/ で発行できます
+   - `.env` を開き、`GEMINI_API_KEY` にあなたの Gemini APIキーを入れる
+   - キーは https://aistudio.google.com/apikey で発行できます
    ```bash
    cp .env.example .env   # macOS / Linux
    # Windows(PowerShell) は: copy .env.example .env
@@ -33,17 +33,19 @@
    ブラウザで http://localhost:5173 が自動で開きます。
 
 > **メモ**：APIキーを入れなくても画面（UI）はすぐ表示されます。
-> ただし「絵にする」で絵を生成するには APIキーが必要です。
+> エンジンを「Pollinations(無料)」にすればAPIキーなしでも絵を生成できます。
+> 「Gemini(高品質)」で生成するには APIキーが必要です。
 
 ---
 
 ## APIキーの扱いについて
 
 - APIキーは **`.env`（サーバー側）だけ** に置きます。ブラウザには一切渡しません。
-- フロントエンドは `/api/anthropic/v1/messages` を呼び、Vite の開発サーバーが
-  `https://api.anthropic.com` へ中継しつつ、キーをヘッダーに付けます
-  （設定は `vite.config.js`）。
-- 絵の生成にはあなたの Anthropic の利用枠（API のクレジット）が消費されます。
+- フロントエンドは `/api/gemini/v1beta/models/gemini-2.5-flash-image:generateContent` を呼び、
+  Vite の開発サーバーが `https://generativelanguage.googleapis.com` へ中継しつつ、
+  キーをヘッダーに付けます（設定は `vite.config.js`）。
+- 絵の生成にはあなたの Gemini の利用枠（API のクレジット）が消費されます。
+  Pollinations エンジンはAPIキー不要・無料です。
 
 ---
 
@@ -73,19 +75,18 @@
 
 ---
 
-## モデルの変更
+## エンジンの変更
 
-画面右の「モデル」で切り替えられます（初期値）。
+画面右の「エンジン」で切り替えられます（初期値は Gemini）。
 
-| 表示   | モデルID                        | 用途             |
-| ------ | ------------------------------- | ---------------- |
-| きれい | `claude-sonnet-4-6`             | 描写重視         |
-| 軽量   | `claude-haiku-4-5-20251001`     | 速い・低コスト   |
+| 表示                | 用途                             |
+| ------------------- | -------------------------------- |
+| Gemini(高品質)      | `gemini-2.5-flash-image`。要APIキー |
+| Pollinations(無料) | `flux`モデル。APIキー不要        |
 
-さらに高品質にしたい場合は、`src/App.jsx` の `MODELS` を編集して
-`claude-sonnet-5` や `claude-opus-4-8` などに変更できます。
-利用可能なモデルはアカウントにより異なります。最新の正式なモデルID は
-公式ドキュメントで確認してください：https://docs.claude.com/en/docs/about-claude/models/overview
+Gemini側のモデルIDを変更したい場合は、`src/App.jsx` の `fetchGeminiImage` 内の
+エンドポイントURLを編集してください。利用可能なモデルは
+公式ドキュメントで確認してください：https://ai.google.dev/gemini-api/docs/models
 
 ---
 

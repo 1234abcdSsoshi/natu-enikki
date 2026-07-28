@@ -2,12 +2,12 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
-// 開発サーバーが /api/anthropic/* への呼び出しを https://api.anthropic.com/* へ中継します。
-// このとき ANTHROPIC_API_KEY をサーバー側でヘッダーに付けるため、
+// 開発サーバーが /api/gemini/* への呼び出しを https://generativelanguage.googleapis.com/* へ中継します。
+// このとき GEMINI_API_KEY をサーバー側でヘッダーに付けるため、
 // APIキーはブラウザ（フロントエンド）に一切出ません。
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const apiKey = env.ANTHROPIC_API_KEY || "";
+  const geminiKey = env.GEMINI_API_KEY || "";
 
   return {
     plugins: [
@@ -36,14 +36,13 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       open: true,
       proxy: {
-        "/api/anthropic": {
-          target: "https://api.anthropic.com",
+        "/api/gemini": {
+          target: "https://generativelanguage.googleapis.com",
           changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/api\/anthropic/, ""),
+          rewrite: (p) => p.replace(/^\/api\/gemini/, ""),
           configure: (proxy) => {
             proxy.on("proxyReq", (proxyReq) => {
-              if (apiKey) proxyReq.setHeader("x-api-key", apiKey);
-              proxyReq.setHeader("anthropic-version", "2023-06-01");
+              if (geminiKey) proxyReq.setHeader("x-goog-api-key", geminiKey);
             });
           },
         },

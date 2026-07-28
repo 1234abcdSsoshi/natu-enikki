@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 
 // 日本の夏 絵日記アプリ
-// 日記本文 → Claude(claude-sonnet-4-6)がSVGイラストに変換 → 絵日記ページに表示
+// 日記本文 → Gemini 2.5 Flash Image / Pollinations が絵に変換 → 絵日記ページに表示
 
 // 作風プリセット(画面から選べる)
 const STYLES = [
@@ -26,36 +26,6 @@ const STYLES = [
   },
 ];
 
-const PROMPT_TOP = `あなたは日本の夏を描く、腕利きの絵日記イラストレーターです。
-以下の日記本文を深く読み取り、その情景・光・空気感・感情を、1枚の完成度の高いSVGイラストに描いてください。
-
-# 制作の手順(頭の中で行い、最終的には SVG のみ出力)
-1. 日記から、主役となる情景と「時間帯・天気」を1つ決める
-2. 遠景(空・雲・山や海)/ 中景(主役のモチーフ)/ 近景(手前の要素)の3層で構図を組む
-3. 時間帯に合う配色と、光の向きを決める
-4. その計画に沿って、ていねいに描く
-
-# 出力ルール
-- 出力は <svg> で始まり </svg> で終わる、完全なSVGコードのみ。説明・前置き・コードフェンスは一切書かない
-- viewBox="0 0 800 600"
-- 外部画像・外部フォントは読み込まない。図形(rect, circle, ellipse, path, polygon, line)のみで描く
-
-# クオリティの指針
-- 空や水面には linearGradient / radialGradient を使い、なめらかな階調と夏の光を表現する
-- 遠景から近景へ色を少しずつ変えて奥行きを出す(遠くは淡く霞ませ、手前ははっきり)
-- 主役のモチーフは、大きさ・位置・色のコントラストで画面の明確な焦点にする
-- 光源を1つ決め、その向きに沿ってハイライトと影(半透明の重ね塗り)を入れる
-- 太陽や光の周りは、opacityの低い円を重ねたグローで夏の眩しさを添える
-- 細部の描き込みは2〜3か所にしぼる(例:風鈴の短冊、金魚のひれ、向日葵の種)。他は余白として引く
-- 全体の色数は5〜7色ほどに抑え、調和のとれた配色にする
-
-# 作風
-`;
-
-function buildPrompt(styleDir, body) {
-  return `${PROMPT_TOP}${styleDir}\n\n# 日記本文\n${body}`;
-}
-
 function todayLabel() {
   const d = new Date();
   const days = ["日", "月", "火", "水", "木", "金", "土"];
@@ -64,14 +34,6 @@ function todayLabel() {
     md: `${d.getMonth() + 1}月${d.getDate()}日`,
     dow: days[d.getDay()],
   };
-}
-
-function extractSvg(raw) {
-  if (!raw) return null;
-  const start = raw.indexOf("<svg");
-  const end = raw.lastIndexOf("</svg>");
-  if (start === -1 || end === -1) return null;
-  return raw.slice(start, end + "</svg>".length);
 }
 
 function escapeXml(s) {
@@ -220,18 +182,13 @@ const SPLASHES = Array.from({ length: 6 }, (_, i) => ({
   d: `${(i * 1.3).toFixed(1)}s`,
 }));
 
-const MODELS = [
-  { key: "sonnet", label: "きれい", id: "claude-sonnet-4-6", tokens: 8000 },
-  { key: "haiku", label: "軽量", id: "claude-haiku-4-5-20251001", tokens: 6000 },
-];
-
 const ENGINES = [
-  { key: "claude", label: "Claude(SVG)" },
+  { key: "gemini", label: "Gemini(2.5 Flash)" },
   { key: "pollinations", label: "Pollinations(無料)" },
 ];
 
-// Pollinations.ai 用の英語プロンプトを組み立てる
-function buildPollinationsPrompt(styleImg, diary) {
+// 画像生成AI用の英語プロンプトを組み立てる(Gemini・Pollinations共通)
+function buildImagePrompt(styleImg, diary) {
   return `Japanese summer festival diary illustration, ${styleImg}, warm nostalgic mood, may feature motifs like fireworks, paper lanterns, wind chimes, goldfish, morning glories, cicadas, yukata, Bon dance, food stalls, sparkler fireworks, watermelon splitting, Tanabata streamers, bamboo blinds. no text, no watermark. Diary: ${diary}`;
 }
 
@@ -244,26 +201,46 @@ async function fetchPollinationsImage(prompt, signal) {
   const blob = await res.blob();
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(new Error("pollinations_read_failed"));
+    reader.onload = () => resolve(reader.result);
     reader.readAsDataURL(blob);
   });
 }
 
-// エラーが利用上限系なら、分かりやすい日本語に整形して返す(それ以外は null)
-function limitMessage(err) {
-  const raw = typeof err === "string" ? err : JSON.stringify(err || "");
-  if (!/exceeded_limit|上限|rate_limit/.test(raw)) return null;
-  let when = "";
-  const iso = raw.match(/"resets_at":"([^"]+)"/);
-  const unix = raw.match(/"resetsAt":(\d+)/);
-  let dt = null;
-  if (iso) dt = new Date(iso[1]);
-  else if (unix) dt = new Date(parseInt(unix[1], 10) * 1000);
-  if (dt && !isNaN(dt.getTime())) {
-    when = "リセットは " + dt.toLocaleString("ja-JP", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " ごろです。";
-  }
-  return "Claudeの利用上限(5時間ごとの枠)に達したため、絵を描けませんでした。" + when + " 枠が回復してから、または「軽量」モデルで、もう一度お試しください。";
+// Gemini 2.5 Flash Image の料金目安(USD/100万トークン)。
+// 実際の料金は変更されることがあるため、使う前に必ず公式ページで確認してください:
+// https://ai.google.dev/gemini-api/docs/pricing
+const GEMINI_PRICING = { inputPerMTok: 0.3, outputPerMTok: 30 };
+
+// トークン使用量(usageMetadata)から概算コスト(USD)を計算する
+function estimateGeminiCost(usage) {
+  if (!usage) return null;
+  const inputTok = usage.promptTokenCount || 0;
+  const outputTok = usage.candidatesTokenCount || 0;
+  const totalTok = usage.totalTokenCount || inputTok + outputTok;
+  const costUsd =
+    (inputTok / 1_000_000) * GEMINI_PRICING.inputPerMTok +
+    (outputTok / 1_000_000) * GEMINI_PRICING.outputPerMTok;
+  return { engine: "gemini", inputTok, outputTok, totalTok, costUsd };
+}
+
+// Gemini 2.5 Flash Image から画像を取得し、data URL とトークン使用量を返す
+async function fetchGeminiImage(prompt, signal) {
+  const res = await fetch("/api/gemini/v1beta/models/gemini-2.5-flash-image:generateContent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    signal,
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || `gemini_http_${res.status}`);
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const imgPart = parts.find((p) => p.inlineData);
+  if (!imgPart) throw new Error("gemini_no_image");
+  return {
+    dataUrl: `data:${imgPart.inlineData.mimeType};base64,${imgPart.inlineData.data}`,
+    usage: estimateGeminiCost(data.usageMetadata),
+  };
 }
 
 // 花火・風鈴の効果音(録音したmp3を再生する)
@@ -362,6 +339,90 @@ function pctToPan(pct) {
   return (n / 100) * 2 - 1;
 }
 
+// 花火の光条(1本1本の光の筋)を生成する。角度は count 本ぴったり均等配置(ジッターなし)にすることで、
+// 見た目の対称性を厳密に保証する。長さだけをランダムにばらつかせ、単調な均一円にならないようにする。
+function useFireworkRays(count, minLenFrac, maxLenFrac, radius) {
+  return useMemo(() => {
+    const rays = [];
+    for (let i = 0; i < count; i++) {
+      const angle = (360 / count) * i;
+      const len = radius * (minLenFrac + Math.random() * (maxLenFrac - minLenFrac));
+      rays.push({ angle, len, seedIndex: i });
+    }
+    return rays;
+  }, [count, minLenFrac, maxLenFrac, radius]);
+}
+
+// 花火の見た目のプリセット。外側〜内側へ何重かの「火花のリング」を重ねて1発を作る。
+// 外側ほど火花を大きく・数を多く、内側ほど小さく・まばらにすることで奥行きを出す。
+const FW_RING_PRESETS = {
+  // 標準(遠景で自動に咲く花火): 外側+内側の2重構成
+  standard: [
+    { radius: 100, count: 30, dotR: 3.2, tailFrac: 0.38 },
+    { radius: 55, count: 16, dotR: 1.8, tailFrac: 0.42 },
+  ],
+  // マウスクリックで咲く花火: 標準と同じく2重構成
+  click: [
+    { radius: 95, count: 24, dotR: 3, tailFrac: 0.38 },
+    { radius: 50, count: 14, dotR: 1.7, tailFrac: 0.42 },
+  ],
+  // 長押しMAXで咲く特別な花火: 外側・中間・内側の3重構成(外側ほど大きく、内側ほど小さく)
+  grand: [
+    { radius: 125, count: 32, dotR: 4, tailFrac: 0.4 },
+    { radius: 75, count: 14, dotR: 2.4, tailFrac: 0.36 },
+    { radius: 35, count: 10, dotR: 1.3, tailFrac: 0.32 },
+  ],
+};
+
+// 1つのリング分の火花(丸い粒+尾を引く軌跡)を描く
+function SparkRing({ rays, ring }) {
+  if (!ring || !ring.count) return null;
+  return rays.map((r, i) => {
+    const a = (r.angle * Math.PI) / 180;
+    const tipX = Math.cos(a) * r.len, tipY = Math.sin(a) * r.len;
+    const tailX = Math.cos(a) * r.len * (1 - ring.tailFrac), tailY = Math.sin(a) * r.len * (1 - ring.tailFrac);
+    return (
+      <g key={i}>
+        {/* 尾: 火花のすぐ後ろに短く伸びる軌跡(外へ広がりながら尾を引くように見せる) */}
+        <line x1={tailX} y1={tailY} x2={tipX} y2={tipY} stroke="currentColor" strokeWidth={Math.max(ring.dotR * 0.55, 0.8)} strokeOpacity="0.8" strokeLinecap="round" />
+        {/* 火花: 先端の丸い粒 */}
+        <circle cx={tipX} cy={tipY} r={ring.dotR + 1.3} fill="currentColor" opacity="0.5" />
+        <circle cx={tipX} cy={tipY} r={ring.dotR} fill="#fff" opacity="0.95" />
+      </g>
+    );
+  });
+}
+
+// 花火の1発を、外側〜内側の「火花のリング」を重ねたSVGで描く。
+// variant: "standard"=遠景で自動に咲く花火(2重)、"click"=クリックで咲く花火(2重)、
+//          "grand"=長押しを最大まで溜めたときだけの特別な花火(3重)
+function FireworkBurst({ color, variant = "standard" }) {
+  const rings = FW_RING_PRESETS[variant] || FW_RING_PRESETS.standard;
+  const [ring0, ring1, ring2] = [rings[0], rings[1], rings[2] || null];
+
+  // フックは常に同じ順序・回数で呼ぶため、リングが無い分もダミー値で呼んでおく
+  const rays0 = useFireworkRays(ring0.count, 0.94, 1.06, ring0.radius);
+  const rays1 = useFireworkRays(ring1.count, 0.94, 1.06, ring1.radius);
+  const rays2 = useFireworkRays(ring2 ? ring2.count : 1, 0.94, 1.06, ring2 ? ring2.radius : 1);
+
+  const maxRadius = Math.max(ring0.radius, ring1.radius, ring2 ? ring2.radius : 0);
+  const half = maxRadius + 35;
+
+  return (
+    <svg
+      className={ring2 ? "fw-svg fw-svg-grand" : "fw-svg"}
+      viewBox={`${-half} ${-half} ${half * 2} ${half * 2}`}
+      style={{ color }}
+      aria-hidden="true"
+    >
+      <SparkRing rays={rays0} ring={ring0} />
+      <SparkRing rays={rays1} ring={ring1} />
+      <SparkRing rays={rays2} ring={ring2} />
+      <circle r={ring0.dotR + 2} fill="#fff" />
+    </svg>
+  );
+}
+
 // 背景の装飾(星・提灯・花火・蛍・屋台・打ち水・すだれ)。ログイン画面・本編で共通。
 // onBoom を渡すと、自動で打ち上がる花火が咲くタイミングにあわせて爆発音を鳴らす。
 function AmbientDeco({ onBoom }) {
@@ -379,10 +440,11 @@ function AmbientDeco({ onBoom }) {
         <span className="wire" />
         {LANTERNS.map((L, i) => (
           <span key={i} className="lantern" style={{ left: L.left, animationDelay: L.d }}>
+            <span className="lantern-ring" />
             <span className="lantern-body" style={{ color: L.c }}>
-              <NatsuMotif width={30} height={30} style={{ left: 3, top: 9 }} />
+              <ChochinStripes />
+              <span className="lantern-shade" />
             </span>
-            <span className="lantern-tassel" />
           </span>
         ))}
       </div>
@@ -390,11 +452,13 @@ function AmbientDeco({ onBoom }) {
         <span
           key={i}
           className="fw"
-          style={{ top: f.top, left: f.left, color: f.c, animationDelay: f.d, "--fw-scale": f.scale }}
+          style={{ top: f.top, left: f.left, animationDelay: f.d, "--fw-scale": f.scale }}
           onAnimationIteration={(e) => {
-            if (e.animationName === "burst" && onBoom) onBoom(pctToPan(f.left), 0.6);
+            if (e.animationName === "fwGrow" && onBoom) onBoom(pctToPan(f.left), 0.6);
           }}
-        />
+        >
+          <FireworkBurst color={f.c} />
+        </span>
       ))}
       {PARTICLES.map((p, i) => (
         <span
@@ -447,6 +511,23 @@ function NatsuMotif({ width, height, style }) {
         <path d="M12 0 L17 -4 L15 0 L17 4 Z" fill="#FF8C5A" />
         <circle cx="-3" cy="-1" r="0.7" fill="#2A2622" />
       </g>
+    </svg>
+  );
+}
+
+// 提灯の縦縞。同心の縦だ円(球面の経線と同じ投影)を重ねることで、
+// 縁ほど細く、中央ほど太くなる、丸みを帯びたリブに見せる。
+function ChochinStripes() {
+  const R = 29;
+  // 縁からの角度(度)ごとの横半径(球面の経線を正投影した幅)
+  const rx = [80, 60, 40, 20].map((deg) => R * Math.sin((deg * Math.PI) / 180));
+  return (
+    <svg viewBox="0 0 58 58" width="58" height="58" style={{ position: "absolute", inset: 0 }} aria-hidden="true">
+      <circle cx={29} cy={29} r={R} fill="currentColor" />
+      <ellipse cx={29} cy={29} rx={rx[0]} ry={R} fill="#fff8ec" />
+      <ellipse cx={29} cy={29} rx={rx[1]} ry={R} fill="currentColor" />
+      <ellipse cx={29} cy={29} rx={rx[2]} ry={R} fill="#fff8ec" />
+      <ellipse cx={29} cy={29} rx={rx[3]} ry={R} fill="currentColor" />
     </svg>
   );
 }
@@ -663,12 +744,13 @@ function MyPage({ images, onDeleteImage, entries, onOpen, onDelete }) {
 export default function App() {
   const [text, setText] = useState("");
   const [artwork, setArtwork] = useState(null); // { kind: "svg" | "raster", data }
+  const [genInfo, setGenInfo] = useState(null); // 直近生成分のトークン数・概算コスト
+  const [showGenDetail, setShowGenDetail] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [entries, setEntries] = useState([]); // セッション内のしおり
   const [styleKey, setStyleKey] = useState("watercolor-pencil");
-  const [modelKey, setModelKey] = useState("sonnet");
-  const [engineKey, setEngineKey] = useState("claude");
+  const [engineKey, setEngineKey] = useState("gemini");
   const [savedText, setSavedText] = useState("");
   const [clickFireworks, setClickFireworks] = useState([]);
   const [launches, setLaunches] = useState([]);
@@ -841,12 +923,13 @@ export default function App() {
   }
 
   // 指定座標に花火を1発咲かせる(pan: 左右の音の定位、scale: 大きさ、vol: 音量)
+  // special: 長押しを最大まで溜めたときの特別な1発(3重構成の大玉で咲かせる)
   // ※これは火種(打ち上げ)から爆発する花火専用なので、爆発音は playLaunchBoom を使う
-  function spawnBloom(x, y, pan = 0, scale = 1, vol = 1) {
+  function spawnBloom(x, y, pan = 0, scale = 1, vol = 1, special = false) {
     const id = clickFwId.current++;
     const color = CLICK_FW_COLORS[Math.floor(Math.random() * CLICK_FW_COLORS.length)];
     const jitteredScale = scale * (0.9 + Math.random() * 0.2);
-    setClickFireworks((prev) => [...prev, { id, x, y, color, scale: jitteredScale }]);
+    setClickFireworks((prev) => [...prev, { id, x, y, color, scale: jitteredScale, special }]);
     playLaunchBoom(pan, vol);
     setTimeout(() => {
       setClickFireworks((prev) => prev.filter((f) => f.id !== id));
@@ -876,6 +959,7 @@ export default function App() {
     const travel = CHARGE_MIN_TRAVEL + t * (CHARGE_MAX_TRAVEL - CHARGE_MIN_TRAVEL);
     const scale = CHARGE_MIN_SCALE + t * (CHARGE_MAX_SCALE - CHARGE_MIN_SCALE);
     const vol = CHARGE_MIN_VOL + t * (CHARGE_MAX_VOL - CHARGE_MIN_VOL);
+    const special = t >= 1; // 長押しを最大まで溜めきったら特別な3重構成の大玉にする
 
     const id = clickFwId.current++;
     const dx = (Math.random() - 0.5) * 70;
@@ -889,7 +973,7 @@ export default function App() {
         launchAudio.currentTime = 0;
       }
       setLaunches((prev) => prev.filter((l) => l.id !== id));
-      spawnBloom(press.x + dx, targetY, press.pan, scale, vol);
+      spawnBloom(press.x + dx, targetY, press.pan, scale, vol, special);
     }, 620);
   }
 
@@ -898,56 +982,33 @@ export default function App() {
     return () => window.removeEventListener("pointerup", handlePressEnd);
   }, []);
 
-  async function drawWithClaude(body, style) {
-    const model = MODELS.find((m) => m.key === modelKey) || MODELS[0];
-    const res = await fetch("/api/anthropic/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: model.id,
-        max_tokens: model.tokens,
-        messages: [{ role: "user", content: buildPrompt(style.dir, body) }],
-      }),
-    });
-    const data = await res.json();
-
-    if (data.error) {
-      console.error("API error:", data.error);
-      const lim = limitMessage(data.error);
-      setError(
-        lim ||
-        "絵を描くところで止まってしまいました(" +
-        (data.error.message || data.error.type || "error") +
-        ")。もう一度ためしてみてください。"
-      );
-      return null;
-    }
-
-    const merged = (data.content || [])
-      .map((b) => (b.type === "text" ? b.text : ""))
-      .join("");
-    const found = extractSvg(merged);
-
-    if (!found) {
-      console.error("SVG not found. stop_reason:", data.stop_reason, "raw:", merged);
-      if (data.stop_reason === "max_tokens") {
-        setError("絵が長くなって、途中で切れてしまいました。日記を少し短くして、もう一度ためしてみてください。");
+  async function drawWithGemini(body, style) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60000);
+    try {
+      const prompt = buildImagePrompt(style.img, body);
+      const { dataUrl, usage } = await fetchGeminiImage(prompt, controller.signal);
+      return { kind: "raster", data: dataUrl, usage };
+    } catch (e) {
+      if (e.name === "AbortError") {
+        setError("絵ができるまで時間がかかりすぎました(60秒)。もう一度ためしてみてください。");
       } else {
-        setError("うまく絵にできませんでした。少し言葉を足して、もう一度ためしてみてください。");
+        console.error("Gemini error:", e);
+        setError("絵を描くところで止まってしまいました(" + e.message + ")。もう一度ためしてみてください。");
       }
       return null;
+    } finally {
+      clearTimeout(timer);
     }
-
-    return { kind: "svg", data: found };
   }
 
   async function drawWithPollinations(body, style) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 60000);
     try {
-      const prompt = buildPollinationsPrompt(style.img, body);
+      const prompt = buildImagePrompt(style.img, body);
       const dataUrl = await fetchPollinationsImage(prompt, controller.signal);
-      return { kind: "raster", data: dataUrl };
+      return { kind: "raster", data: dataUrl, usage: { engine: "pollinations" } };
     } catch (e) {
       if (e.name === "AbortError") {
         setError("絵ができるまで時間がかかりすぎました(60秒)。混雑しているようです。もう一度ためしてみてください。");
@@ -970,13 +1031,16 @@ export default function App() {
     setLoading(true);
     setError("");
     setArtwork(null);
+    setGenInfo(null);
+    setShowGenDetail(false);
     try {
       const style = STYLES.find((s) => s.key === styleKey) || STYLES[0];
       const result =
-        engineKey === "pollinations" ? await drawWithPollinations(body, style) : await drawWithClaude(body, style);
+        engineKey === "pollinations" ? await drawWithPollinations(body, style) : await drawWithGemini(body, style);
       if (!result) return;
 
       setArtwork(result);
+      setGenInfo(result.usage || null);
       setSavedText(body);
       setEntries((prev) => [{ artwork: result, text: body, date: { ...dateRef.current } }, ...prev].slice(0, 12));
       saveGeneratedImageToCloud(result);
@@ -1088,9 +1152,11 @@ export default function App() {
         {clickFireworks.map((f) => (
           <span
             key={f.id}
-            className="fw click-fw"
-            style={{ left: f.x, top: f.y, color: f.color, "--fw-scale": f.scale }}
-          />
+            className="click-fw"
+            style={{ left: f.x, top: f.y, "--fw-scale": f.scale }}
+          >
+            <FireworkBurst color={f.color} variant={f.special ? "grand" : "click"} />
+          </span>
         ))}
         {launches.map((l) => (
           <span
@@ -1178,27 +1244,9 @@ export default function App() {
                   </button>
                 ))}
                 <span style={styles.modelHint}>
-                  {engineKey === "pollinations" ? "APIキー不要・低コスト" : "SVGで描き、なめらかに拡大できる"}
+                  {engineKey === "pollinations" ? "APIキー不要・低コスト" : "高品質・要APIキー"}
                 </span>
               </div>
-
-              {engineKey === "claude" && (
-                <div style={styles.styleRow}>
-                  <span style={styles.styleLabel}>モデル</span>
-                  {MODELS.map((m) => (
-                    <button
-                      key={m.key}
-                      onClick={() => setModelKey(m.key)}
-                      style={{ ...styles.stylePill, ...(modelKey === m.key ? styles.stylePillOn : {}) }}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                  <span style={styles.modelHint}>
-                    {modelKey === "sonnet" ? "描写重視" : "上限にやさしい"}
-                  </span>
-                </div>
-              )}
 
               <div style={styles.controls}>
                 <span style={styles.count}>{text.length} / 600</span>
@@ -1248,6 +1296,21 @@ export default function App() {
                 )}
               </div>
 
+              {artwork && !loading && genInfo && (
+                <div style={styles.genInfoWrap}>
+                  <button style={styles.genInfoToggle} onClick={() => setShowGenDetail((v) => !v)}>
+                    {showGenDetail ? "詳細を隠す" : "詳細(トークン数・料金)"}
+                  </button>
+                  {showGenDetail && (
+                    <p style={styles.genInfo}>
+                      {genInfo.engine === "pollinations"
+                        ? "Pollinations・無料"
+                        : `Gemini・入力${genInfo.inputTok}トークン + 出力${genInfo.outputTok}トークン(計${genInfo.totalTok}) ・ 推定 $${genInfo.costUsd.toFixed(4)}`}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {artwork && !loading && (
                 <div style={styles.saveRow}>
                   <button style={styles.saveMain} onClick={saveArtwork}>
@@ -1292,7 +1355,7 @@ export default function App() {
         </>
       )}
 
-      <footer style={styles.footer}>夜空に花火、軒に提灯</footer>
+      <footer style={styles.footer}>今日も一日お疲れ様です<br/>ゆっくり休んでくださいね！</footer>
     </div>
   );
 }
@@ -1327,64 +1390,80 @@ const css = `
 /* 提灯の列 */
 .lanterns { position: absolute; top: 0; left: 0; right: 0; height: 130px; }
 .lanterns .wire { position: absolute; top: 30px; left: -3%; width: 106%; height: 2px; background: linear-gradient(90deg, transparent, rgba(255,214,150,.45), rgba(255,214,150,.45), transparent); }
-.lantern { position: absolute; top: 30px; width: 36px; height: 48px; transform-origin: top center; animation: swing 4.2s ease-in-out infinite; }
+.lantern { position: absolute; top: 26px; width: 58px; height: 64px; transform-origin: top center; animation: swing 4.2s ease-in-out infinite; }
 .lantern-body {
-  display: block; width: 36px; height: 48px; border-radius: 50% / 42%;
-  background:
-    radial-gradient(ellipse 4px 6px at 24% 16%, rgba(255,255,255,1), rgba(255,255,255,0) 78%),
-    radial-gradient(ellipse 12px 18px at 30% 24%, rgba(255,255,255,.85), rgba(255,255,255,0) 74%),
-    repeating-linear-gradient(180deg, rgba(70,25,10,.32) 0 2px, transparent 2px 13px),
-    radial-gradient(circle at 40% 32%, #fff4cf 0%, currentColor 58%, rgba(0,0,0,.45) 100%);
+  display: block; width: 58px; height: 58px; border-radius: 50%;
   box-shadow:
-    0 0 34px 8px currentColor,
+    0 0 38px 9px currentColor,
     inset -7px -8px 12px rgba(0,0,0,.42),
-    inset 4px 5px 8px rgba(255,255,255,.4);
+    inset 5px 6px 9px rgba(255,255,255,.45);
   position: relative;
   overflow: hidden;
   animation: lglow 3.2s ease-in-out infinite;
 }
+.lantern-shade {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    repeating-linear-gradient(180deg, rgba(0,0,0,.2) 0 1px, transparent 1px 3.5px),
+    radial-gradient(circle at 50% 58%, #fff4cf 0%, transparent 62%);
+}
 .lantern-body::before, .lantern-body::after {
-  content: ''; position: absolute; left: 6px; right: 6px; height: 7px; border-radius: 50%;
-  background: linear-gradient(180deg, rgba(255,255,255,.5) 0%, rgba(0,0,0,.15) 22%, rgba(0,0,0,.6) 100%);
+  content: ''; position: absolute; left: 11px; right: 11px; height: 8px; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255,230,150,.95) 0%, rgba(180,130,30,.85) 45%, rgba(0,0,0,.55) 100%);
   z-index: 1;
 }
-.lantern-body::before { top: -3.5px; } .lantern-body::after { bottom: -3.5px; }
-.lantern-tassel {
-  position: absolute; left: 50%; bottom: -13px; width: 9px; height: 13px; transform: translateX(-50%);
-  background: repeating-linear-gradient(90deg, #d8b45c 0 1.4px, #8a6a2a 1.4px 2.8px);
-  clip-path: polygon(20% 0, 80% 0, 62% 100%, 38% 100%);
+.lantern-body::before { top: -4px; } .lantern-body::after { bottom: -4px; }
+.lantern-ring {
+  position: absolute; top: -12px; left: 50%; width: 8px; height: 8px; margin-left: -4px;
+  border: 2px solid #e8c366; border-radius: 50%; z-index: 2;
+  box-shadow: 0 0 3px rgba(0,0,0,.4);
 }
 @keyframes swing { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
 @keyframes lglow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 
-/* 打ち上げ花火(大玉+小玉の二重リングで派手に。中心はガラス/クリスタル風の白い核) */
-.fw { position: absolute; width: 7px; height: 7px; border-radius: 50%;
-  background: radial-gradient(circle at 32% 28%, #fff 0%, #fff 22%, currentColor 62%, currentColor 100%);
-  opacity: 0;
-  box-shadow:
-    0 0 5px 1px #fff, 0 0 16px 5px #fff, 0 0 26px 9px currentColor,
-    52px 0 5px 1.5px currentColor, 45px 26px 5px 1.5px currentColor, 26px 45px 5px 1.5px currentColor, 0 52px 5px 1.5px currentColor,
-    -26px 45px 5px 1.5px currentColor, -45px 26px 5px 1.5px currentColor, -52px 0 5px 1.5px currentColor, -45px -26px 5px 1.5px currentColor,
-    -26px -45px 5px 1.5px currentColor, 0 -52px 5px 1.5px currentColor, 26px -45px 5px 1.5px currentColor, 45px -26px 5px 1.5px currentColor,
-    30px 15px 4px 0.5px #fff, 15px 30px 4px 0.5px currentColor, -15px 30px 4px 0.5px #fff, -30px 15px 4px 0.5px currentColor,
-    -30px -15px 4px 0.5px #fff, -15px -30px 4px 0.5px currentColor, 15px -30px 4px 0.5px #fff, 30px -15px 4px 0.5px currentColor;
-  filter: drop-shadow(0 0 16px currentColor);
-  animation: burst 5.2s ease-out infinite; }
-@keyframes burst {
-  0% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * .15)); }
-  5% { opacity: 1; }
-  36% { opacity: .95; transform: scale(var(--fw-scale, 1)); }
-  64% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * 1.5)); }
-  100% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * 1.5)); }
+/* 打ち上げ花火(中心から放射する光条をSVGで描く。.fw自身は位置とアニメーションのみを担う)
+   拡大(transform)と明滅(opacity)を別々のアニメーションにして重ねている。
+   transform側は0%→100%の1区間だけで補正するため、途中でイージングが切り替わって
+   "一瞬止まって見える" ような段差が出ない。 */
+.fw {
+  position: absolute; width: 0; height: 0; opacity: 0;
+  animation: fwGrow 2.6s ease-out infinite, fwFade 2.6s ease-in infinite;
+}
+.fw-svg {
+  position: absolute; left: 50%; top: 50%; width: 190px; height: 190px;
+  transform: translate(-50%, -50%);
+  overflow: visible;
+  filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 14px currentColor);
+}
+.fw-svg-grand {
+  width: 240px; height: 240px;
+  filter: drop-shadow(0 0 7px currentColor) drop-shadow(0 0 22px currentColor) drop-shadow(0 0 34px rgba(255,255,255,.55));
+}
+@keyframes fwGrow {
+  0% { transform: scale(calc(var(--fw-scale, 1) * .2)); }
+  100% { transform: scale(calc(var(--fw-scale, 1) * 1.6)); }
+}
+@keyframes fwFade {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  18% { opacity: .9; }
+  100% { opacity: 0; }
 }
 
-/* クリックした場所に咲く単発の花火 */
-.click-fw { animation: burstOnce .9s ease-out both; z-index: 5; }
-@keyframes burstOnce {
-  0% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * .1)); }
-  8% { opacity: 1; }
-  40% { opacity: 1; transform: scale(var(--fw-scale, 1)); }
-  100% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * 1.6)); }
+/* クリックした場所に咲く単発の花火(考え方はfw/fwGrow/fwFadeと同じ) */
+.click-fw {
+  position: absolute; width: 0; height: 0; opacity: 0; z-index: 5;
+  animation: fwGrowOnce .9s ease-out both, fwFadeOnce .9s ease-in both;
+}
+@keyframes fwGrowOnce {
+  0% { transform: scale(calc(var(--fw-scale, 1) * .15)); }
+  100% { transform: scale(calc(var(--fw-scale, 1) * 1.6)); }
+}
+@keyframes fwFadeOnce {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  30% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* 火種が「ピュー」と駆け上がる打ち上げ演出 */
@@ -1783,6 +1862,19 @@ const styles = {
   rasterImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
   placeholder: { textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 },
   placeholderText: { fontSize: 13, color: C.sumi, opacity: 0.5, margin: 0 },
+  genInfoWrap: { marginTop: 12 },
+  genInfoToggle: {
+    padding: "4px 10px",
+    border: `1px solid ${C.sumi}`,
+    borderRadius: 6,
+    background: "transparent",
+    color: C.sumi,
+    opacity: 0.6,
+    fontFamily: "'Klee One', serif",
+    fontSize: 11,
+    cursor: "pointer",
+  },
+  genInfo: { fontFamily: "'Klee One', serif", fontSize: 11, color: C.sumi, opacity: 0.55, margin: "8px 2px 0" },
   saveRow: { display: "flex", gap: 10, marginTop: 12 },
   saveMain: {
     flex: "1 1 auto",
