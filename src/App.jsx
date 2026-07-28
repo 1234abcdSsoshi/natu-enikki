@@ -442,13 +442,15 @@ function FireworkBurst({ color, variant = "standard" }) {
       <SparkRing rays={rays1} ring={ring1} color={color} />
       <SparkRing rays={rays2} ring={ring2} color={ring2?.accent ? FW_ACCENT : color} />
 
-      {/* 中心: 光り輝く光源(段階的なやわらかい光暈+細かいフレア光条+輝く芯) */}
-      <circle r={coreR * 8} fill="#fff" opacity="0.06" />
-      <circle r={coreR * 6} fill="#fff" opacity="0.09" />
-      <circle r={coreR * 4.4} fill="#fff" opacity="0.14" />
-      <circle r={coreR * 3.1} fill="#fff" opacity="0.22" />
-      <circle r={coreR * 2} fill="#fff" opacity="0.38" />
-      <circle r={coreR * 1.2} fill="#fff" opacity="0.65" />
+      {/* 中心: 光り輝く光源
+          外側ほど花火の色ににじむ光暈(白→色のグラデーション)+細かいフレア光条+
+          長く伸びるレンズフレア風のスパイク+白飛びした明るい芯、で構成する */}
+      <circle r={coreR * 9} fill={color} opacity="0.07" />
+      <circle r={coreR * 6.4} fill={color} opacity="0.12" />
+      <circle r={coreR * 4.4} fill={color} opacity="0.18" />
+      <circle r={coreR * 3} fill="#fff" opacity="0.3" />
+      <circle r={coreR * 1.9} fill="#fff" opacity="0.55" />
+      <circle r={coreR * 1.15} fill="#fff" opacity="0.85" />
       {flareRays.map((r, i) => {
         const a = (r.angle * Math.PI) / 180;
         const tipX = Math.cos(a) * r.len, tipY = Math.sin(a) * r.len;
@@ -460,18 +462,24 @@ function FireworkBurst({ color, variant = "standard" }) {
           </g>
         );
       })}
-      {[0, 45, 90, 135].map((deg) => {
+      {/* レンズフレア風の長いスパイク: 根元は太く、先端にいくほど細く淡くなる */}
+      {[0, 45, 90, 135, 22.5, 67.5, 112.5, 157.5].map((deg, i) => {
         const a = (deg * Math.PI) / 180;
-        const len = coreR * 5.5;
+        const isMain = i < 4;
+        const len = coreR * (isMain ? 9.5 : 5.5);
+        const midLen = len * 0.3;
         const dx = Math.cos(a) * len, dy = Math.sin(a) * len;
+        const mdx = Math.cos(a) * midLen, mdy = Math.sin(a) * midLen;
         return (
-          <line
-            key={deg}
-            x1={-dx} y1={-dy} x2={dx} y2={dy}
-            stroke="#fff" strokeOpacity="0.4" strokeWidth={coreR * 0.3} strokeLinecap="round"
-          />
+          <g key={deg}>
+            <line x1={0} y1={0} x2={mdx} y2={mdy} stroke="#fff" strokeOpacity={isMain ? 0.55 : 0.35} strokeWidth={coreR * (isMain ? 0.4 : 0.22)} strokeLinecap="round" />
+            <line x1={mdx} y1={mdy} x2={dx} y2={dy} stroke="#fff" strokeOpacity={isMain ? 0.22 : 0.12} strokeWidth={coreR * (isMain ? 0.16 : 0.09)} strokeLinecap="round" />
+            <line x1={0} y1={0} x2={-mdx} y2={-mdy} stroke="#fff" strokeOpacity={isMain ? 0.55 : 0.35} strokeWidth={coreR * (isMain ? 0.4 : 0.22)} strokeLinecap="round" />
+            <line x1={-mdx} y1={-mdy} x2={-dx} y2={-dy} stroke="#fff" strokeOpacity={isMain ? 0.22 : 0.12} strokeWidth={coreR * (isMain ? 0.16 : 0.09)} strokeLinecap="round" />
+          </g>
         );
       })}
+      <circle r={coreR * 1.5} fill="#fff" opacity="0.9" />
       <circle r={coreR + 1.4} fill="#fff" />
     </svg>
   );
