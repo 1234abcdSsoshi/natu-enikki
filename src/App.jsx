@@ -10,19 +10,19 @@ const STYLES = [
     key: "watercolor-pencil",
     label: "水彩色鉛筆風",
     dir: "アニメ塗りのようなくっきりした塗りではなく、にじみやムラのある水彩と、紙の質感が透ける色鉛筆の重ね塗りで描く。輪郭は淡く、色は彩度を抑えて優しく発色させ、素朴であたたかい雰囲気にする。",
-    img: "soft watercolor and colored pencil illustration, visible paper texture, gentle bleeding watercolor edges, muted pastel colors, rustic warm hand-colored feel",
+    img: "soft watercolor and colored pencil illustration, visible paper texture, gentle bleeding watercolor edges, muted pastel colors, rustic warm hand-colored feel. Absolutely no readable text, no words, no letters, no captions, no signage, no writing of any kind anywhere in the image",
   },
   {
     key: "sketch",
     label: "らくがき風",
     dir: "均一に整えすぎず、少し震えたような手描きの線(輪郭をわずかに二重線にする、ゆらぎのあるストローク)で描く。塗りもきっちり塗り分けず、はみ出しやムラを少し残し、完璧すぎないラフでゆるい仕上がりにする。個人の日記帳にさらっと描いたような、親密で気取らない空気感にする。",
-    img: "hand-drawn doodle sketch style, wobbly uneven pencil lines, loose imperfect linework, casual personal diary sketch feel, rough scribbly illustration, not too polished",
+    img: "hand-drawn doodle sketch style, wobbly uneven pencil lines, loose imperfect linework, casual personal diary sketch feel, rough scribbly illustration, not too polished. Absolutely no readable text, no words, no letters, no captions, no signage, no writing of any kind anywhere in the image",
   },
   {
     key: "comic-essay",
     label: "エッセイ漫画風",
     dir: "コマ割り風に画面を枠線で区切り、吹き出し(丸みを帯びた形)を組み合わせた、絵日記エッセイ漫画のような構図で描く。人物はやや簡略化したかわいらしいプロポーションにし、擬音や効果線などのマンガ的な記号を図形(線・円・多角形)で添える。文字は描かず、形と線の組み合わせだけでエッセイ漫画らしい雰囲気を出す。",
-    img: "Japanese comic essay illustration style (manga essay / 4-koma inspired), panel border lines, simple speech bubble shapes, cute simplified chibi-style character, manga sound-effect lines, storytelling composition, blank speech bubbles with no readable text",
+    img: "Japanese comic essay illustration style (manga essay / 4-koma inspired), page divided into clearly bordered comic panels arranged in a grid, each panel has a small bold numeral (1, 2, 3, 4...) in a simple circle badge in one corner marking its panel number, cute simplified chibi-style characters, manga-style motion lines and simple graphic sound-effect symbols (bursts, stars, lines only, not letters), empty blank speech bubble shapes only. Absolutely no readable text, no words, no letters, no captions, no signage anywhere in the image other than the single-digit panel numbers",
   },
 ];
 
@@ -53,9 +53,11 @@ function fitSvgIntoBox(svgStr, x, y, w, h) {
   return `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="${viewBox}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 }
 
-// ラスター画像(data URL)を、指定の枠に収まる<image>タグに書き換える
+// ラスター画像(data URL)を、指定の枠に収まる<image>タグに書き換える。
+// slice(=cover)だと枠の縦横比と合わない画像は端が切れてしまうため、meet(=contain)で
+// 画像全体が必ず収まるようにする(枠の余白は背景色で埋まる)
 function fitImageIntoBox(dataUrl, x, y, w, h) {
-  return `<image x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice" href="${dataUrl}"/>`;
+  return `<image x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet" href="${dataUrl}"/>`;
 }
 
 // 絵(SVG文字列 または ラスター画像のdata URL)を、そのままファイルとしてダウンロードする
@@ -212,7 +214,10 @@ async function fetchPollinationsImage(prompt, signal) {
 // https://ai.google.dev/gemini-api/docs/pricing
 const GEMINI_PRICING = { inputPerMTok: 0.3, outputPerMTok: 30 };
 
-// トークン使用量(usageMetadata)から概算コスト(USD)を計算する
+// 円換算用のおおよそのレート(固定値)。実際の為替レートとはずれるため、目安として使う
+const USD_TO_JPY = 150;
+
+// トークン使用量(usageMetadata)から概算コスト(USD・円)を計算する
 function estimateGeminiCost(usage) {
   if (!usage) return null;
   const inputTok = usage.promptTokenCount || 0;
@@ -221,7 +226,14 @@ function estimateGeminiCost(usage) {
   const costUsd =
     (inputTok / 1_000_000) * GEMINI_PRICING.inputPerMTok +
     (outputTok / 1_000_000) * GEMINI_PRICING.outputPerMTok;
-  return { engine: "gemini", inputTok, outputTok, totalTok, costUsd };
+  const costJpy = costUsd * USD_TO_JPY;
+  return { engine: "gemini", inputTok, outputTok, totalTok, costUsd, costJpy };
+}
+
+// Geminiのサーバー側が混み合っている(一時的な高負荷)ことによるエラーかどうかを判定する
+function isGeminiOverload(err) {
+  const msg = String(err?.message || err || "");
+  return /overloaded|high demand|UNAVAILABLE|\b503\b/i.test(msg);
 }
 
 // Gemini 2.5 Flash Image から画像を取得し、data URL とトークン使用量を返す
@@ -229,7 +241,12 @@ async function fetchGeminiImage(prompt, signal) {
   const res = await fetch("/api/gemini/v1beta/models/gemini-2.5-flash-image:generateContent", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    // aspectRatioを指定しないとGeminiは正方形(1:1)で生成するため、絵日記の表示枠(4:3)と
+    // 合わずに大きくトリミングされてしまう。表示枠に合わせて明示的に4:3を指定する
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { imageConfig: { aspectRatio: "4:3" } },
+    }),
     signal,
   });
   const data = await res.json();
@@ -251,7 +268,8 @@ const SFX_CHIME = "/audio/chime.mp3"; // 風鈴(チリン)
 
 const CHIME_REST_MS = 5000; // 風鈴の音を鳴らす間隔(この時間内は再度鳴らさない)
 
-function useFestivalAudio() {
+// masterVolRef: 全体の音量(0〜1)を保持するref。画面左上の音量ボタンから随時更新される
+function useFestivalAudio(masterVolRef) {
   const ctxRef = useRef(null);
   const lastChimeRef = useRef(0);
 
@@ -277,6 +295,10 @@ function useFestivalAudio() {
   // startAt/stopAt を指定すると、その区間(秒)だけを再生する
   // (1つの音源ファイルに複数発分の音が収録されている場合に、1発分だけ再生するため)
   function playClip(url, { vol = 1, pan = 0, startAt = 0, stopAt = null } = {}) {
+    const master = masterVolRef ? Math.max(0, Math.min(1, masterVolRef.current)) : 1;
+    const effVol = Math.max(0, vol) * master;
+    if (effVol <= 0) return null; // ミュート中は再生自体を省略する
+
     const audio = new Audio(url);
     const ctx = ensureCtx();
 
@@ -289,11 +311,11 @@ function useFestivalAudio() {
       setTimeout(() => audio.pause(), Math.max(0, stopAt - startAt) * 1000);
     }
 
-    if (ctx && (pan !== 0 || vol > 1)) {
+    if (ctx && (pan !== 0 || effVol > 1)) {
       try {
         const src = ctx.createMediaElementSource(audio);
         const gain = ctx.createGain();
-        gain.gain.value = Math.max(0, vol);
+        gain.gain.value = effVol;
         let node = src.connect(gain);
         if (pan !== 0 && ctx.createStereoPanner) {
           const panner = ctx.createStereoPanner();
@@ -310,7 +332,7 @@ function useFestivalAudio() {
       }
     }
 
-    audio.volume = Math.max(0, Math.min(1, vol));
+    audio.volume = Math.max(0, Math.min(1, effVol));
     audio.play().catch(() => { });
     return audio;
   }
@@ -814,7 +836,30 @@ export default function App() {
   const dateRef = useRef(todayLabel());
   const clickFwId = useRef(0);
   const pressRef = useRef(null);
-  const { playBoom, playLaunchBoom, playChime, playLaunch } = useFestivalAudio();
+
+  // 全体の音量(0〜1)。左上の音量ボタンから調整でき、次回起動時のために保存する
+  const [masterVol, setMasterVol] = useState(() => {
+    const saved = parseFloat(window.localStorage.getItem("natsu-enikki-volume"));
+    return Number.isFinite(saved) ? Math.min(1, Math.max(0, saved)) : 1;
+  });
+  const [volHover, setVolHover] = useState(false); // カーソルを近づけている間だけスライダーを見せる
+  const masterVolRef = useRef(masterVol);
+  const prevVolRef = useRef(1); // ミュート前の音量(クリックでミュート解除するときに戻す値)
+  useEffect(() => {
+    masterVolRef.current = masterVol;
+    window.localStorage.setItem("natsu-enikki-volume", String(masterVol));
+  }, [masterVol]);
+
+  function toggleMute() {
+    if (masterVol > 0) {
+      prevVolRef.current = masterVol;
+      setMasterVol(0);
+    } else {
+      setMasterVol(prevVolRef.current > 0 ? prevVolRef.current : 1);
+    }
+  }
+
+  const { playBoom, playLaunchBoom, playChime, playLaunch } = useFestivalAudio(masterVolRef);
 
   // Supabase 認証・日記の保存
   const [session, setSession] = useState(null);
@@ -1043,11 +1088,24 @@ export default function App() {
     const timer = setTimeout(() => controller.abort(), 60000);
     try {
       const prompt = buildImagePrompt(style.img, body);
-      const { dataUrl, usage } = await fetchGeminiImage(prompt, controller.signal);
-      return { kind: "raster", data: dataUrl, usage };
+      let result;
+      try {
+        result = await fetchGeminiImage(prompt, controller.signal);
+      } catch (e) {
+        // 混み合っているだけの一時的なエラーなら、少し待って1回だけ自動で再試行する
+        if (isGeminiOverload(e)) {
+          await new Promise((r) => setTimeout(r, 1500));
+          result = await fetchGeminiImage(prompt, controller.signal);
+        } else {
+          throw e;
+        }
+      }
+      return { kind: "raster", data: result.dataUrl, usage: result.usage };
     } catch (e) {
       if (e.name === "AbortError") {
         setError("絵ができるまで時間がかかりすぎました(60秒)。もう一度ためしてみてください。");
+      } else if (isGeminiOverload(e)) {
+        setError("Geminiが混み合っているようです(現在アクセスが集中しています)。少し時間をおくか、「Pollinations(無料)」エンジンに切り替えて、もう一度お試しください。");
       } else {
         console.error("Gemini error:", e);
         setError("絵を描くところで止まってしまいました(" + e.message + ")。もう一度ためしてみてください。");
@@ -1153,11 +1211,46 @@ export default function App() {
 
   const d = dateRef.current;
 
+  // 左上の音量調整ボタン(全画面共通)。カーソルを近づけるとスライダーが現れ、
+  // ボタンをクリックするとミュート/解除が切り替わる
+  const volumeIcon = masterVol <= 0 ? "🔇" : masterVol < 0.34 ? "🔈" : masterVol < 0.67 ? "🔉" : "🔊";
+  const volumeControl = (
+    <div
+      style={styles.volumeWrap}
+      onMouseEnter={() => setVolHover(true)}
+      onMouseLeave={() => setVolHover(false)}
+    >
+      <button
+        type="button"
+        style={styles.volumeBtn}
+        onClick={toggleMute}
+        aria-label="ミュート切り替え"
+      >
+        {volumeIcon}
+      </button>
+      {volHover && (
+        <div style={styles.volumePanel}>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={masterVol}
+            onChange={(e) => setMasterVol(parseFloat(e.target.value))}
+            style={styles.volumeSlider}
+            aria-label="音量"
+          />
+        </div>
+      )}
+    </div>
+  );
+
   // 初回のセッション確認中(一瞬)
   if (authLoading) {
     return (
       <div style={styles.root}>
         <style>{css}</style>
+        {volumeControl}
         <div className="deco" aria-hidden="true"><AmbientDeco onBoom={playBoom} /></div>
         <div style={styles.gateLoading}><div className="ink" /></div>
       </div>
@@ -1169,6 +1262,7 @@ export default function App() {
     return (
       <div style={styles.root}>
         <style>{css}</style>
+        {volumeControl}
 
         <div className="deco" aria-hidden="true"><AmbientDeco onBoom={playBoom} /></div>
         <FurinChime onChime={playChime} />
@@ -1201,6 +1295,7 @@ export default function App() {
   return (
     <div style={styles.root} onPointerDown={handlePressStart}>
       <style>{css}</style>
+      {volumeControl}
 
       {/* 夏祭りの装飾(背面) */}
       <div className="deco" aria-hidden="true">
@@ -1361,7 +1456,7 @@ export default function App() {
                     <p style={styles.genInfo}>
                       {genInfo.engine === "pollinations"
                         ? "Pollinations・無料"
-                        : `Gemini・入力${genInfo.inputTok}トークン + 出力${genInfo.outputTok}トークン(計${genInfo.totalTok}) ・ 推定 $${genInfo.costUsd.toFixed(4)}`}
+                        : `Gemini・入力${genInfo.inputTok}トークン + 出力${genInfo.outputTok}トークン(計${genInfo.totalTok}) ・ 推定 $${genInfo.costUsd.toFixed(4)}(約${genInfo.costJpy.toFixed(2)}円)`}
                     </p>
                   )}
                 </div>
@@ -1663,6 +1758,26 @@ const styles = {
     color: "#F6EACC",
     fontFamily: "'Klee One', 'Hiragino Mincho ProN', serif",
   },
+  volumeWrap: { position: "fixed", top: 14, left: 14, zIndex: 50 },
+  volumeBtn: {
+    width: 40, height: 40, borderRadius: "50%",
+    border: "1.5px solid rgba(246,234,204,.35)",
+    background: "rgba(23,17,57,.55)",
+    backdropFilter: "blur(4px)",
+    color: "#F6EACC",
+    fontSize: 18,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    cursor: "pointer",
+  },
+  volumePanel: {
+    position: "absolute", top: 46, left: 0,
+    background: "rgba(23,17,57,.85)",
+    border: "1px solid rgba(246,234,204,.25)",
+    borderRadius: 10,
+    padding: "10px 12px",
+    boxShadow: "0 6px 18px rgba(0,0,0,.35)",
+  },
+  volumeSlider: { width: 110, accentColor: "#EF9A3D", cursor: "pointer" },
   header: { textAlign: "center", paddingTop: 8, marginBottom: 20, position: "relative", zIndex: 1 },
   season: {
     display: "flex",
@@ -1906,7 +2021,7 @@ const styles = {
     justifyContent: "center",
   },
   svgHost: { width: "100%", height: "100%" },
-  rasterImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  rasterImg: { width: "100%", height: "100%", objectFit: "contain", display: "block" },
   placeholder: { textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 },
   placeholderText: { fontSize: 13, color: C.sumi, opacity: 0.5, margin: 0 },
   genInfoWrap: { marginTop: 12 },
