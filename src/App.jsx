@@ -362,7 +362,7 @@ function pctToPan(pct) {
   return (n / 100) * 2 - 1;
 }
 
-// 背景の装飾(星・提灯・花火・蛍・屋台・打ち水・蚊取り線香・すだれ)。ログイン画面・本編で共通。
+// 背景の装飾(星・提灯・花火・蛍・屋台・打ち水・すだれ)。ログイン画面・本編で共通。
 // onBoom を渡すと、自動で打ち上がる花火が咲くタイミングにあわせて爆発音を鳴らす。
 function AmbientDeco({ onBoom }) {
   return (
@@ -414,20 +414,6 @@ function AmbientDeco({ onBoom }) {
       {SPLASHES.map((s, i) => (
         <span key={i} className="splash" style={{ left: s.left, animationDelay: s.d }} />
       ))}
-
-      <div className="kayari">
-        <svg viewBox="0 0 32 32" width="30" height="30">
-          <path
-            d="M16 24 a8 8 0 1 1 5.6-13.6 a5.5 5.5 0 1 1 -3.9 9.5 a3 3 0 1 1 -2.1-5.1"
-            fill="none"
-            stroke="#B65C38"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
-          <circle cx="16" cy="26" r="1.4" fill="#8A3A22" />
-        </svg>
-        <span className="smoke" />
-      </div>
 
       <div className="sudare">
         {Array.from({ length: 9 }).map((_, i) => (
@@ -1317,36 +1303,37 @@ const css = `
 .lantern-body {
   display: block; width: 36px; height: 48px; border-radius: 50% / 42%;
   background:
-    radial-gradient(ellipse 10px 15px at 28% 22%, rgba(255,255,255,.9), rgba(255,255,255,0) 72%),
-    repeating-linear-gradient(180deg, rgba(70,25,10,.3) 0 2px, transparent 2px 13px),
-    radial-gradient(circle at 40% 32%, #fff4cf 0%, currentColor 62%, rgba(0,0,0,.35) 100%);
+    radial-gradient(ellipse 4px 6px at 24% 16%, rgba(255,255,255,1), rgba(255,255,255,0) 78%),
+    radial-gradient(ellipse 12px 18px at 30% 24%, rgba(255,255,255,.85), rgba(255,255,255,0) 74%),
+    repeating-linear-gradient(180deg, rgba(70,25,10,.32) 0 2px, transparent 2px 13px),
+    radial-gradient(circle at 40% 32%, #fff4cf 0%, currentColor 58%, rgba(0,0,0,.45) 100%);
   box-shadow:
-    0 0 24px 5px currentColor,
-    inset -5px -6px 10px rgba(0,0,0,.32),
-    inset 3px 4px 7px rgba(255,255,255,.3);
+    0 0 34px 8px currentColor,
+    inset -7px -8px 12px rgba(0,0,0,.42),
+    inset 4px 5px 8px rgba(255,255,255,.4);
   position: relative;
   animation: lglow 3.2s ease-in-out infinite;
 }
 .lantern-body::before, .lantern-body::after {
-  content: ''; position: absolute; left: 7px; right: 7px; height: 6px; border-radius: 50%;
-  background: linear-gradient(180deg, rgba(0,0,0,.5), rgba(0,0,0,.1));
+  content: ''; position: absolute; left: 6px; right: 6px; height: 7px; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255,255,255,.5) 0%, rgba(0,0,0,.15) 22%, rgba(0,0,0,.6) 100%);
 }
-.lantern-body::before { top: -3px; } .lantern-body::after { bottom: -3px; }
+.lantern-body::before { top: -3.5px; } .lantern-body::after { bottom: -3.5px; }
 @keyframes swing { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
 @keyframes lglow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 
 /* 打ち上げ花火(大玉+小玉の二重リングで派手に。中心はガラス/クリスタル風の白い核) */
 .fw { position: absolute; width: 7px; height: 7px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff 0%, #fff 15%, currentColor 60%, currentColor 100%);
+  background: radial-gradient(circle at 32% 28%, #fff 0%, #fff 22%, currentColor 62%, currentColor 100%);
   opacity: 0;
   box-shadow:
-    0 0 9px 2px #fff,
-    52px 0 4px 1px currentColor, 45px 26px 4px 1px currentColor, 26px 45px 4px 1px currentColor, 0 52px 4px 1px currentColor,
-    -26px 45px 4px 1px currentColor, -45px 26px 4px 1px currentColor, -52px 0 4px 1px currentColor, -45px -26px 4px 1px currentColor,
-    -26px -45px 4px 1px currentColor, 0 -52px 4px 1px currentColor, 26px -45px 4px 1px currentColor, 45px -26px 4px 1px currentColor,
-    30px 15px 3px 0 currentColor, 15px 30px 3px 0 currentColor, -15px 30px 3px 0 currentColor, -30px 15px 3px 0 currentColor,
-    -30px -15px 3px 0 currentColor, -15px -30px 3px 0 currentColor, 15px -30px 3px 0 currentColor, 30px -15px 3px 0 currentColor;
-  filter: drop-shadow(0 0 12px currentColor);
+    0 0 5px 1px #fff, 0 0 16px 5px #fff, 0 0 26px 9px currentColor,
+    52px 0 5px 1.5px currentColor, 45px 26px 5px 1.5px currentColor, 26px 45px 5px 1.5px currentColor, 0 52px 5px 1.5px currentColor,
+    -26px 45px 5px 1.5px currentColor, -45px 26px 5px 1.5px currentColor, -52px 0 5px 1.5px currentColor, -45px -26px 5px 1.5px currentColor,
+    -26px -45px 5px 1.5px currentColor, 0 -52px 5px 1.5px currentColor, 26px -45px 5px 1.5px currentColor, 45px -26px 5px 1.5px currentColor,
+    30px 15px 4px 0.5px #fff, 15px 30px 4px 0.5px currentColor, -15px 30px 4px 0.5px #fff, -30px 15px 4px 0.5px currentColor,
+    -30px -15px 4px 0.5px #fff, -15px -30px 4px 0.5px currentColor, 15px -30px 4px 0.5px #fff, 30px -15px 4px 0.5px currentColor;
+  filter: drop-shadow(0 0 16px currentColor);
   animation: burst 5.2s ease-out infinite; }
 @keyframes burst {
   0% { opacity: 0; transform: scale(calc(var(--fw-scale, 1) * .15)); }
@@ -1423,37 +1410,42 @@ const css = `
   100% { opacity: 0; }
 }
 
-/* 蚊取り線香 */
-.kayari { position: absolute; left: 18px; bottom: 44px; opacity: .9; }
-.kayari .smoke { position: absolute; left: 13px; bottom: 24px; width: 3px; height: 3px; border-radius: 50%; background: rgba(255,255,255,.55); filter: blur(1px); animation: smokeRise 3.6s ease-in infinite; }
-@keyframes smokeRise {
-  0% { transform: translate(0,0) scaleX(1); opacity: 0; }
-  15% { opacity: .5; }
-  55% { transform: translate(6px,-30px) scaleX(1.8); opacity: .3; }
-  100% { transform: translate(-4px,-62px) scaleX(2.6); opacity: 0; }
+/* すだれ(竹の縦すのこ+編み糸の横線で、それらしく見せる) */
+.sudare { position: absolute; top: 0; left: 0; width: 96px; height: 150px; opacity: .4; transform-origin: top center; animation: sway 6s ease-in-out infinite; }
+.sudare span { position: absolute; top: 0; width: 3px; height: 100%; background: linear-gradient(180deg, rgba(230,200,150,.75), rgba(180,140,90,.35)); border-radius: 1.5px; }
+.sudare::before, .sudare::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  background: rgba(90,60,30,.55);
 }
-
-/* すだれ */
-.sudare { position: absolute; top: 0; left: 0; width: 96px; height: 150px; opacity: .35; transform-origin: top center; animation: sway 6s ease-in-out infinite; }
-.sudare span { position: absolute; top: 0; width: 3px; height: 100%; background: linear-gradient(180deg, rgba(230,200,150,.7), rgba(180,140,90,.3)); }
+.sudare::before { top: 22%; } .sudare::after { top: 68%; }
 
 /* ── 風鈴 ── */
 .furin { position: absolute; top: 0; right: 30px; width: 42px; z-index: 4; transform-origin: top center; animation: sway 4.5s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(127,198,214,.5)); }
 .furin-string { width: 2px; height: 52px; margin: 0 auto; background: rgba(255,255,255,.5); }
 .furin-bell {
   width: 42px; height: 36px; margin: -2px auto 0; border-radius: 50% 50% 46% 46%;
-  background: radial-gradient(circle at 34% 30%, #ffffff 0%, ${C.asagi} 55%, ${C.ai} 100%);
+  background-color: ${C.ai};
+  background-image:
+    repeating-radial-gradient(circle at 50% 100%, rgba(255,255,255,.5) 0 1.5px, transparent 1.5px 6px),
+    radial-gradient(circle at 34% 30%, #ffffff 0%, ${C.asagi} 55%, ${C.ai} 100%);
+  background-position: bottom center, center;
+  background-size: 100% 42%, 100% 100%;
+  background-repeat: no-repeat, no-repeat;
   box-shadow:
-    inset -4px -5px 7px rgba(0,0,0,.25),
-    inset 3px 4px 6px rgba(255,255,255,.4),
-    0 0 16px rgba(127,198,214,.55);
+    inset -6px -7px 9px rgba(0,0,0,.35),
+    inset 4px 5px 7px rgba(255,255,255,.55),
+    0 0 22px rgba(127,198,214,.7);
   position: relative;
   overflow: hidden;
 }
 .furin-bell::before {
-  content: ''; position: absolute; top: 5px; left: 9px; width: 6px; height: 17px;
-  background: linear-gradient(120deg, rgba(255,255,255,.9), rgba(255,255,255,0) 75%);
-  border-radius: 50%; transform: rotate(-18deg); filter: blur(.4px);
+  content: ''; position: absolute; top: 4px; left: 8px; width: 7px; height: 19px;
+  background: linear-gradient(120deg, rgba(255,255,255,1), rgba(255,255,255,0) 78%);
+  border-radius: 50%; transform: rotate(-18deg); filter: blur(.3px);
+}
+.furin-bell::after {
+  content: ''; position: absolute; top: 16px; left: 22px; width: 4px; height: 4px;
+  background: rgba(255,255,255,.9); border-radius: 50%; filter: blur(.2px);
 }
 .furin-inner {
   position: absolute; left: 50%; bottom: -3px; width: 8px; height: 8px; border-radius: 50%;
@@ -1461,7 +1453,12 @@ const css = `
   box-shadow: inset -1px -1px 2px rgba(0,0,0,.4);
   transform: translateX(-50%);
 }
-.furin-tanzaku { width: 13px; height: 32px; margin: 2px auto 0; background: ${C.shu}; opacity: .9; border-radius: 2px; animation: flutter 4.5s ease-in-out infinite; }
+.furin-tanzaku {
+  width: 13px; height: 32px; margin: 2px auto 0;
+  background: linear-gradient(180deg, ${C.yuyake} 0%, ${C.shu} 65%, #a8351d 100%);
+  box-shadow: inset 1px 0 0 rgba(255,255,255,.3), inset -1px 0 0 rgba(0,0,0,.15);
+  opacity: .92; border-radius: 2px; animation: flutter 4.5s ease-in-out infinite;
+}
 @keyframes sway { 0%,100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
 @keyframes flutter { 0%,100% { transform: skewX(-9deg); } 50% { transform: skewX(9deg); } }
 
@@ -1488,7 +1485,7 @@ textarea:focus { outline: 2px solid ${C.asagi}; outline-offset: 2px; }
 button:focus-visible { outline: 2px solid ${C.shu}; outline-offset: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .click-fw, .fw-launch, .charge-ring, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash, .kayari .smoke, .sudare { animation: none !important; transition: none !important; }
+  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .click-fw, .fw-launch, .charge-ring, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash, .sudare { animation: none !important; transition: none !important; }
 }
 `;
 
