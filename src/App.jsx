@@ -379,7 +379,10 @@ function AmbientDeco({ onBoom }) {
         <span className="wire" />
         {LANTERNS.map((L, i) => (
           <span key={i} className="lantern" style={{ left: L.left, animationDelay: L.d }}>
-            <span className="lantern-body" style={{ color: L.c }} />
+            <span className="lantern-body" style={{ color: L.c }}>
+              <NatsuMotif width={30} height={30} style={{ left: 3, top: 9 }} />
+            </span>
+            <span className="lantern-tassel" />
           </span>
         ))}
       </div>
@@ -424,6 +427,30 @@ function AmbientDeco({ onBoom }) {
   );
 }
 
+// 金魚と朝顔の絵付けモチーフ(提灯・風鈴に共通で使う簡易SVG)
+function NatsuMotif({ width, height, style }) {
+  return (
+    <svg viewBox="0 0 40 40" width={width} height={height} style={{ position: "absolute", ...style }} aria-hidden="true">
+      <g transform="translate(9,26)">
+        {[0, 72, 144, 216, 288].map((deg) => (
+          <ellipse key={deg} cx="0" cy="-6" rx="2.6" ry="4.4" fill="#5B8DEF" opacity="0.92" transform={`rotate(${deg})`} />
+        ))}
+        <circle cx="0" cy="0" r="1.7" fill="#FFF6D8" />
+      </g>
+      <g transform="translate(23,11) rotate(-10)">
+        <path d="M-6 0 C-6 -3 -2 -5 3 -5 C7 -5 10 -2 12 0 C10 2 7 5 3 5 C-2 5 -6 3 -6 0 Z" fill="#FF6B35" />
+        <path d="M12 0 L17 -4 L15 0 L17 4 Z" fill="#FF6B35" />
+        <circle cx="-3" cy="-1" r="0.7" fill="#2A2622" />
+      </g>
+      <g transform="translate(15,20) rotate(12) scale(0.78)">
+        <path d="M-6 0 C-6 -3 -2 -5 3 -5 C7 -5 10 -2 12 0 C10 2 7 5 3 5 C-2 5 -6 3 -6 0 Z" fill="#FF8C5A" />
+        <path d="M12 0 L17 -4 L15 0 L17 4 Z" fill="#FF8C5A" />
+        <circle cx="-3" cy="-1" r="0.7" fill="#2A2622" />
+      </g>
+    </svg>
+  );
+}
+
 // 風鈴(クリック/タップで鳴らせます)
 function FurinChime({ onChime }) {
   return (
@@ -438,6 +465,7 @@ function FurinChime({ onChime }) {
     >
       <div className="furin-string" />
       <div className="furin-bell">
+        <NatsuMotif width={26} height={26} style={{ left: 8, top: 4 }} />
         <div className="furin-inner" />
       </div>
       <div className="furin-tanzaku" />
@@ -1312,13 +1340,20 @@ const css = `
     inset -7px -8px 12px rgba(0,0,0,.42),
     inset 4px 5px 8px rgba(255,255,255,.4);
   position: relative;
+  overflow: hidden;
   animation: lglow 3.2s ease-in-out infinite;
 }
 .lantern-body::before, .lantern-body::after {
   content: ''; position: absolute; left: 6px; right: 6px; height: 7px; border-radius: 50%;
   background: linear-gradient(180deg, rgba(255,255,255,.5) 0%, rgba(0,0,0,.15) 22%, rgba(0,0,0,.6) 100%);
+  z-index: 1;
 }
 .lantern-body::before { top: -3.5px; } .lantern-body::after { bottom: -3.5px; }
+.lantern-tassel {
+  position: absolute; left: 50%; bottom: -13px; width: 9px; height: 13px; transform: translateX(-50%);
+  background: repeating-linear-gradient(90deg, #d8b45c 0 1.4px, #8a6a2a 1.4px 2.8px);
+  clip-path: polygon(20% 0, 80% 0, 62% 100%, 38% 100%);
+}
 @keyframes swing { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
 @keyframes lglow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 
