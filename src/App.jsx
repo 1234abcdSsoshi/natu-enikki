@@ -1,30 +1,28 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { supabase } from "./supabaseClient";
+import stylesMarkdown from "../prompt_v1.0.md?raw";
 
 // 日本の夏 絵日記アプリ
 // 日記本文 → Gemini 2.5 Flash Image / Pollinations が絵に変換 → 絵日記ページに表示
 
-// 作風プリセット(画面から選べる)
-const STYLES = [
-  {
-    key: "watercolor-pencil",
-    label: "水彩色鉛筆風",
-    dir: "アニメ塗りのようなくっきりした塗りではなく、にじみやムラのある水彩と、紙の質感が透ける色鉛筆の重ね塗りで描く。輪郭は淡く、色は彩度を抑えて優しく発色させ、素朴であたたかい雰囲気にする。",
-    img: "soft watercolor and colored pencil illustration, visible paper texture, gentle bleeding watercolor edges, muted pastel colors, rustic warm hand-colored feel. Absolutely no readable text, no words, no letters, no captions, no signage, no writing of any kind anywhere in the image",
-  },
-  {
-    key: "sketch",
-    label: "らくがき風",
-    dir: "均一に整えすぎず、少し震えたような手描きの線(輪郭をわずかに二重線にする、ゆらぎのあるストローク)で描く。塗りもきっちり塗り分けず、はみ出しやムラを少し残し、完璧すぎないラフでゆるい仕上がりにする。個人の日記帳にさらっと描いたような、親密で気取らない空気感にする。",
-    img: "hand-drawn doodle sketch style, wobbly uneven pencil lines, loose imperfect linework, casual personal diary sketch feel, rough scribbly illustration, not too polished. Absolutely no readable text, no words, no letters, no captions, no signage, no writing of any kind anywhere in the image",
-  },
-  {
-    key: "comic-essay",
-    label: "エッセイ漫画風",
-    dir: "コマ割り風に画面を枠線で区切り、吹き出し(丸みを帯びた形)を組み合わせた、絵日記エッセイ漫画のような構図で描く。人物はやや簡略化したかわいらしいプロポーションにし、擬音や効果線などのマンガ的な記号を図形(線・円・多角形)で添える。文字は描かず、形と線の組み合わせだけでエッセイ漫画らしい雰囲気を出す。",
-    img: "Japanese comic essay illustration style (manga essay / 4-koma inspired), page divided into clearly bordered comic panels arranged in a grid, each panel has a small bold numeral (1, 2, 3, 4...) in a simple circle badge in one corner marking its panel number, cute simplified chibi-style characters, manga-style motion lines and simple graphic sound-effect symbols (bursts, stars, lines only, not letters), empty blank speech bubble shapes only. Absolutely no readable text, no words, no letters, no captions, no signage anywhere in the image other than the single-digit panel numbers",
-  },
-];
+// 作風プリセット(画面から選べる)。中身は prompt_v1.0.md に書かれており、ここではそれを読み込むだけにする
+// (プロンプト文言はコードと分けて管理し、編集しやすくするため)
+function parseStylesMarkdown(raw) {
+  return raw
+    .split(/^## /m)
+    .slice(1)
+    .map((block) => {
+      const lines = block.split("\n");
+      const key = lines[0].trim();
+      const field = (name) => {
+        const line = lines.find((l) => l.trim().startsWith(`- ${name}:`));
+        return line ? line.trim().slice(`- ${name}:`.length).trim() : "";
+      };
+      return { key, label: field("label"), dir: field("dir"), img: field("img") };
+    });
+}
+
+const STYLES = parseStylesMarkdown(stylesMarkdown);
 
 function todayLabel() {
   const d = new Date();
@@ -151,6 +149,8 @@ const FIREWORKS = [
 ];
 
 const CLICK_FW_COLORS = ["#EF9A3D", "#7FC6D6", "#F06E9A", "#8CE99A", "#FFD166", "#C77DFF", "#FF8C69"];
+
+const DRAW_TIMEOUT_MS = 180000; // 絵の生成を諦めるまでの時間(3分)
 
 // 長押し(チャージ)の設定: 押している時間に比例して、飛距離・大きさ・音量が増す
 const CHARGE_MAX_MS = 1400;
@@ -1103,7 +1103,7 @@ export default function App() {
 
   async function drawWithGemini(body, style) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 60000);
+    const timer = setTimeout(() => controller.abort(), DRAW_TIMEOUT_MS);
     try {
       const prompt = buildImagePrompt(style.img, body);
       let result;
@@ -1121,7 +1121,7 @@ export default function App() {
       return { kind: "raster", data: result.dataUrl, usage: result.usage };
     } catch (e) {
       if (e.name === "AbortError") {
-        setError("絵ができるまで時間がかかりすぎました(60秒)。もう一度ためしてみてください。");
+        setError("絵ができるまで時間がかかりすぎました(3分)。もう一度ためしてみてください。");
       } else if (isGeminiOverload(e)) {
         setError("Geminiが混み合っているようです(現在アクセスが集中しています)。少し時間をおくか、「Pollinations(無料)」エンジンに切り替えて、もう一度お試しください。");
       } else {
@@ -1136,14 +1136,14 @@ export default function App() {
 
   async function drawWithPollinations(body, style) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 60000);
+    const timer = setTimeout(() => controller.abort(), DRAW_TIMEOUT_MS);
     try {
       const prompt = buildImagePrompt(style.img, body);
       const dataUrl = await fetchPollinationsImage(prompt, controller.signal);
       return { kind: "raster", data: dataUrl, usage: { engine: "pollinations" } };
     } catch (e) {
       if (e.name === "AbortError") {
-        setError("絵ができるまで時間がかかりすぎました(60秒)。混雑しているようです。もう一度ためしてみてください。");
+        setError("絵ができるまで時間がかかりすぎました(3分)。混雑しているようです。もう一度ためしてみてください。");
       } else {
         console.error("Pollinations error:", e);
         setError("絵を描くところで止まってしまいました。もう一度ためしてみてください。");
