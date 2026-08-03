@@ -6,19 +6,19 @@
 
 - `label`: 画面の「作風」ボタンに表示される名前
 - `dir`: この作風の狙い(日本語・現状はドキュメント用途で生成には使っていません)
-- `img`: 画像生成AI(Gemini・Pollinations)に渡す英語のプロンプト本文
+- `img`: 画像生成AI(Gemini・Pollinations)に渡すプロンプト本文(日本語)
 
 ## watercolor-pencil
 - label: 水彩色鉛筆風
 - dir: アニメ塗りのようなくっきりした塗りではなく、にじみやムラのある水彩と、紙の質感が透ける色鉛筆の重ね塗りで描く。輪郭は淡く、色は彩度を抑えて優しく発色させ、素朴であたたかい雰囲気にする。
-- img: soft watercolor and colored pencil illustration, visible paper texture, gentle bleeding watercolor edges, muted pastel colors, rustic warm hand-colored feel. Absolutely no readable text, no words, no letters, no captions, no signage, no writing of any kind anywhere in the image
+- img: やわらかい水彩と色鉛筆による挿絵。紙の質感が見え、水彩のにじみがあり、彩度を抑えたパステル調の色合いで、素朴であたたかい手描きの雰囲気にする。文字・単語・読める文字列・看板・書き込みは画像内に一切描かないでください。
 
 ## sketch
 - label: らくがき風
 - dir: 均一に整えすぎず、少し震えたような手描きの線(輪郭をわずかに二重線にする、ゆらぎのあるストローク)で描く。塗りもきっちり塗り分けず、はみ出しやムラを少し残し、完璧すぎないラフでゆるい仕上がりにする。個人の日記帳にさらっと描いたような、親密で気取らない空気感にする。
-- img: hand-drawn doodle sketch style, wobbly uneven pencil lines, loose imperfect linework, casual personal diary sketch feel, rough scribbly illustration, not too polished. Absolutely no readable text, no words, no letters, no captions, no signage, no writing of any kind anywhere in the image
+- img: 手描きの落書き風スケッチ。ゆらいだ不均一な鉛筆の線、ラフで完璧すぎない線画、個人の日記にさらっと描いたような気取らない雰囲気にする。粗くラフなイラストで、きれいに仕上げすぎないこと。文字・単語・読める文字列・看板・書き込みは画像内に一切描かないでください。
 
 ## comic-essay
 - label: エッセイ漫画風
-- dir: コマ割り風に画面を枠線で区切り、吹き出し(丸みを帯びた形)を組み合わせた、絵日記エッセイ漫画のような構図で描く。人物はやや簡略化したかわいらしいプロポーションにし、擬音や効果線などのマンガ的な記号を図形(線・円・多角形)で添える。文字は描かず、形と線の組み合わせだけでエッセイ漫画らしい雰囲気を出す。
-- img: Japanese comic essay illustration style (manga essay / 4-koma inspired), page divided into clearly bordered comic panels arranged in a grid, each panel has a small bold numeral (1, 2, 3, 4...) in a simple circle badge in one corner marking its panel number, cute simplified chibi-style characters, manga-style motion lines and simple graphic sound-effect symbols (bursts, stars, lines only, not letters), empty blank speech bubble shapes only. Absolutely no readable text, no words, no letters, no captions, no signage anywhere in the image other than the single-digit panel numbers
+- dir: コマ割り風に画面を枠線で区切り、絵日記エッセイ漫画のような構図で描く（絶対に吹き出しはつけない）。人物はやや簡略化したかわいらしいプロポーションにし、擬音や効果線などのマンガ的な記号を図形(線・円・多角形)で添える。文字は描かず、形と線の組み合わせだけでエッセイ漫画らしい雰囲気を出す。
+- img: 日本のエッセイ漫画風イラスト(コマ割り漫画・4コマ風)。画面をはっきりとした枠線で区切られたコマに分割し、各コマの隅には小さな丸バッジの中に太字の数字(1、2、3、4…)でコマ番号を入れる。かわいく簡略化されたちびキャラクター、漫画的な動きの線やシンプルな効果記号(爆発・星・線のみで、文字は使わない)、中身が空白の吹き出しの形だけを描く。コマ番号の数字以外、文字・単語・読める文字列・看板・書き込みは画像内に一切描かないでください。

@@ -182,7 +182,12 @@ const ENGINES = [
 
 // 画像生成AI用の英語プロンプトを組み立てる(Gemini・Pollinations共通)
 function buildImagePrompt(styleImg, diary) {
-  return `Japanese summer festival diary illustration, ${styleImg}, warm nostalgic mood, may feature motifs like fireworks, paper lanterns, wind chimes, goldfish, morning glories, cicadas, yukata, Bon dance, food stalls, sparkler fireworks, watermelon splitting, Tanabata streamers, bamboo blinds. no text, no watermark. Diary: ${diary}`;
+  return `絵日記のイラスト。${styleImg}
+下記の日記本文に書かれている情景・出来事だけを、忠実に描いてください。日記に書かれていない場面・物・行事(夏祭り・花火・提灯・風鈴なども含む)を勝手に付け加えないでください。日記に登場しないモチーフで画面を埋めず、日記に書かれた内容そのものを描写することを最優先にしてください。
+文字・単語・読める文字列・看板・透かし(ウォーターマーク)は画像内に一切描かないでください。
+
+日記本文:
+${diary}`;
 }
 
 // Pollinations.ai から画像を取得し、data URL にして返す
