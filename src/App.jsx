@@ -139,15 +139,6 @@ const PARTICLES = Array.from({ length: 16 }, (_, i) => ({
   dur: `${6 + (i % 5)}s`,
 }));
 
-const FIREWORKS = [
-  { top: "13%", left: "22%", c: "#EF9A3D", d: "0s", scale: 1.15 },
-  { top: "9%", left: "62%", c: "#7FC6D6", d: "2.1s", scale: 1.35 },
-  { top: "20%", left: "44%", c: "#F06E9A", d: "4s", scale: 0.95 },
-  { top: "7%", left: "8%", c: "#8CE99A", d: "1.1s", scale: 1.05 },
-  { top: "16%", left: "84%", c: "#FFD166", d: "3.2s", scale: 1.25 },
-  { top: "25%", left: "6%", c: "#C77DFF", d: "5s", scale: 0.9 },
-];
-
 const CLICK_FW_COLORS = ["#EF9A3D", "#7FC6D6", "#F06E9A", "#8CE99A", "#FFD166", "#C77DFF", "#FF8C69"];
 
 const DRAW_TIMEOUT_MS = 180000; // 絵の生成を諦めるまでの時間(3分)
@@ -262,7 +253,6 @@ async function fetchGeminiImage(prompt, signal) {
 
 // 花火・風鈴の効果音(録音したmp3を再生する)
 const SFX_LAUNCH = "/audio/launch.mp3"; // 打ち上げ(ヒュー)
-const SFX_BOOM = "/audio/boom.mp3"; // 自動で打ち上がる花火の爆発音
 const SFX_BOOM_LAUNCH = "/audio/boom_launch.mp3"; // 火種(打ち上げ)から爆発する花火の爆発音
 const SFX_CHIME = "/audio/chime.mp3"; // 風鈴(チリン)
 
@@ -355,7 +345,6 @@ function useFestivalAudio(masterVolRef) {
     return audio;
   }
 
-  const playBoom = (pan = 0, vol = 1) => playClip(SFX_BOOM, { vol, pan }); // 自動で打ち上がる花火用
   // 火種から爆発する花火用。収録音源には複数発分入っているため、無音の前置き部分を
   // 飛ばして0.25秒から再生し、2発目が始まる1.00秒より前の0.95秒で止める
   const playLaunchBoom = (pan = 0, vol = 1) => playClip(SFX_BOOM_LAUNCH, { vol, pan, startAt: 0.35, stopAt: 0.95 });
@@ -369,14 +358,7 @@ function useFestivalAudio(masterVolRef) {
     playClip(SFX_CHIME, { vol: 1 });
   }
 
-  return { playBoom, playLaunchBoom, playChime, playLaunch };
-}
-
-// "22%" のような left 値を、左右定位(-1〜1)に変換する
-function pctToPan(pct) {
-  const n = parseFloat(pct);
-  if (Number.isNaN(n)) return 0;
-  return (n / 100) * 2 - 1;
+  return { playLaunchBoom, playChime, playLaunch };
 }
 
 // 花火の光条(1本1本の光の筋)を生成する。角度は count 本ぴったり均等配置(ジッターなし)にすることで、
@@ -397,23 +379,24 @@ function useFireworkRays(count, minLenFrac, maxLenFrac, radius) {
 // 外側ほど火花を大きく・数を多く、内側ほど小さく・まばらにすることで奥行きを出す。
 // accent: true のリングは、基本色とは違う色(暖色のアクセント)で強弱をつける。
 const FW_ACCENT = "#FFE7B0";
+// (軽量化のため、リングあたりの火花の数を控えめにしている)
 const FW_RING_PRESETS = {
   // 標準(遠景で自動に咲く花火): 外側+内側の2重構成
   standard: [
-    { radius: 100, count: 30, dotR: 3.2, tailFrac: 0.5 },
-    { radius: 55, count: 16, dotR: 1.8, tailFrac: 0.55 },
+    { radius: 100, count: 18, dotR: 3.2, tailFrac: 0.5 },
+    { radius: 55, count: 10, dotR: 1.8, tailFrac: 0.55 },
   ],
   // マウスクリックで咲く花火: 標準と同じく2重構成
   click: [
-    { radius: 95, count: 24, dotR: 3, tailFrac: 0.5 },
-    { radius: 50, count: 14, dotR: 1.7, tailFrac: 0.55 },
+    { radius: 95, count: 16, dotR: 3, tailFrac: 0.5 },
+    { radius: 50, count: 9, dotR: 1.7, tailFrac: 0.55 },
   ],
   // 長押しMAXで咲く特別な花火: 外側・中間・内側の3重構成(外側ほど大きく、内側ほど小さく)。
   // 内側だけ色を変えて、外側と強弱(コントラスト)をつける。
   grand: [
-    { radius: 125, count: 32, dotR: 4, tailFrac: 0.5 },
-    { radius: 75, count: 14, dotR: 2.4, tailFrac: 0.46 },
-    { radius: 35, count: 10, dotR: 1.3, tailFrac: 0.4, accent: true },
+    { radius: 125, count: 20, dotR: 4, tailFrac: 0.5 },
+    { radius: 75, count: 10, dotR: 2.4, tailFrac: 0.46 },
+    { radius: 35, count: 7, dotR: 1.3, tailFrac: 0.4, accent: true },
   ],
 };
 
@@ -469,7 +452,7 @@ function FireworkBurst({ color, variant = "standard" }) {
   const half = maxRadius + 35;
   const coreR = ring0.dotR;
   // 光源の芯からきらめく、細かく密なフレア光条(長さはランダムにばらつかせ、繊細な輝きにする)
-  const flareRays = useFireworkRays(44, 0.35, 1, coreR * 6);
+  const flareRays = useFireworkRays(20, 0.35, 1, coreR * 6);
 
   return (
     <svg
@@ -503,19 +486,18 @@ function FireworkBurst({ color, variant = "standard" }) {
         );
       })}
       {/* レンズフレア風の長いスパイク: 根元は太く、先端にいくほど細く淡くなる */}
-      {[0, 45, 90, 135, 22.5, 67.5, 112.5, 157.5].map((deg, i) => {
+      {[0, 45, 90, 135].map((deg) => {
         const a = (deg * Math.PI) / 180;
-        const isMain = i < 4;
-        const len = coreR * (isMain ? 9.5 : 5.5);
+        const len = coreR * 9.5;
         const midLen = len * 0.3;
         const dx = Math.cos(a) * len, dy = Math.sin(a) * len;
         const mdx = Math.cos(a) * midLen, mdy = Math.sin(a) * midLen;
         return (
           <g key={deg}>
-            <line x1={0} y1={0} x2={mdx} y2={mdy} stroke="#fff" strokeOpacity={isMain ? 0.55 : 0.35} strokeWidth={coreR * (isMain ? 0.4 : 0.22)} strokeLinecap="round" />
-            <line x1={mdx} y1={mdy} x2={dx} y2={dy} stroke="#fff" strokeOpacity={isMain ? 0.22 : 0.12} strokeWidth={coreR * (isMain ? 0.16 : 0.09)} strokeLinecap="round" />
-            <line x1={0} y1={0} x2={-mdx} y2={-mdy} stroke="#fff" strokeOpacity={isMain ? 0.55 : 0.35} strokeWidth={coreR * (isMain ? 0.4 : 0.22)} strokeLinecap="round" />
-            <line x1={-mdx} y1={-mdy} x2={-dx} y2={-dy} stroke="#fff" strokeOpacity={isMain ? 0.22 : 0.12} strokeWidth={coreR * (isMain ? 0.16 : 0.09)} strokeLinecap="round" />
+            <line x1={0} y1={0} x2={mdx} y2={mdy} stroke="#fff" strokeOpacity="0.55" strokeWidth={coreR * 0.4} strokeLinecap="round" />
+            <line x1={mdx} y1={mdy} x2={dx} y2={dy} stroke="#fff" strokeOpacity="0.22" strokeWidth={coreR * 0.16} strokeLinecap="round" />
+            <line x1={0} y1={0} x2={-mdx} y2={-mdy} stroke="#fff" strokeOpacity="0.55" strokeWidth={coreR * 0.4} strokeLinecap="round" />
+            <line x1={-mdx} y1={-mdy} x2={-dx} y2={-dy} stroke="#fff" strokeOpacity="0.22" strokeWidth={coreR * 0.16} strokeLinecap="round" />
           </g>
         );
       })}
@@ -525,9 +507,8 @@ function FireworkBurst({ color, variant = "standard" }) {
   );
 }
 
-// 背景の装飾(星・提灯・花火・蛍・屋台・打ち水・すだれ)。ログイン画面・本編で共通。
-// onBoom を渡すと、自動で打ち上がる花火が咲くタイミングにあわせて爆発音を鳴らす。
-function AmbientDeco({ onBoom }) {
+// 背景の装飾(星・提灯・蛍・屋台・打ち水・すだれ)。ログイン画面・本編で共通。
+function AmbientDeco() {
   return (
     <>
       {STARS.map((s, i) => (
@@ -550,18 +531,6 @@ function AmbientDeco({ onBoom }) {
           </span>
         ))}
       </div>
-      {FIREWORKS.map((f, i) => (
-        <span
-          key={i}
-          className="fw"
-          style={{ top: f.top, left: f.left, animationDelay: f.d, "--fw-scale": f.scale }}
-          onAnimationIteration={(e) => {
-            if (e.animationName === "fwGrow" && onBoom) onBoom(pctToPan(f.left), 0.6);
-          }}
-        >
-          <FireworkBurst color={f.c} />
-        </span>
-      ))}
       {PARTICLES.map((p, i) => (
         <span
           key={i}
@@ -877,7 +846,7 @@ export default function App() {
     }
   }
 
-  const { playBoom, playLaunchBoom, playChime, playLaunch } = useFestivalAudio(masterVolRef);
+  const { playLaunchBoom, playChime, playLaunch } = useFestivalAudio(masterVolRef);
 
   // Supabase 認証・日記の保存
   const [session, setSession] = useState(null);
@@ -1269,7 +1238,7 @@ export default function App() {
       <div style={styles.root}>
         <style>{css}</style>
         {volumeControl}
-        <div className="deco" aria-hidden="true"><AmbientDeco onBoom={playBoom} /></div>
+        <div className="deco" aria-hidden="true"><AmbientDeco /></div>
         <div style={styles.gateLoading}><div className="ink" /></div>
       </div>
     );
@@ -1282,7 +1251,7 @@ export default function App() {
         <style>{css}</style>
         {volumeControl}
 
-        <div className="deco" aria-hidden="true"><AmbientDeco onBoom={playBoom} /></div>
+        <div className="deco" aria-hidden="true"><AmbientDeco /></div>
         <FurinChime onChime={playChime} />
 
         <BrandHeader subtitle="ログインして、きょうの絵日記を書きましょう" />
@@ -1317,7 +1286,7 @@ export default function App() {
 
       {/* 夏祭りの装飾(背面) */}
       <div className="deco" aria-hidden="true">
-        <AmbientDeco onBoom={playBoom} />
+        <AmbientDeco />
         {clickFireworks.map((f) => (
           <span
             key={f.id}
@@ -1590,14 +1559,7 @@ const css = `
 @keyframes swing { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
 @keyframes lglow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
 
-/* 打ち上げ花火(中心から放射する光条をSVGで描く。.fw自身は位置とアニメーションのみを担う)
-   拡大(transform)と明滅(opacity)を別々のアニメーションにして重ねている。
-   transform側は0%→100%の1区間だけで補正するため、途中でイージングが切り替わって
-   "一瞬止まって見える" ような段差が出ない。 */
-.fw {
-  position: absolute; width: 0; height: 0; opacity: 0;
-  animation: fwGrow 2.6s ease-out infinite, fwFade 2.6s ease-in infinite;
-}
+/* 打ち上げ花火(中心から放射する光条をSVGで描く) */
 .fw-svg {
   position: absolute; left: 50%; top: 50%; width: 190px; height: 190px;
   transform: translate(-50%, -50%);
@@ -1608,18 +1570,8 @@ const css = `
   width: 240px; height: 240px;
   filter: drop-shadow(0 0 7px currentColor) drop-shadow(0 0 22px currentColor) drop-shadow(0 0 34px rgba(255,255,255,.55));
 }
-@keyframes fwGrow {
-  0% { transform: scale(calc(var(--fw-scale, 1) * .2)); }
-  100% { transform: scale(calc(var(--fw-scale, 1) * 1.6)); }
-}
-@keyframes fwFade {
-  0% { opacity: 0; }
-  6% { opacity: 1; }
-  18% { opacity: .9; }
-  100% { opacity: 0; }
-}
 
-/* クリックした場所に咲く単発の花火(考え方はfw/fwGrow/fwFadeと同じ) */
+/* クリックした場所に咲く単発の花火 */
 .click-fw {
   position: absolute; width: 0; height: 0; opacity: 0; z-index: 5;
   animation: fwGrowOnce .9s ease-out both, fwFadeOnce .9s ease-in both;
@@ -1759,7 +1711,7 @@ textarea:focus { outline: 2px solid ${C.asagi}; outline-offset: 2px; }
 button:focus-visible { outline: 2px solid ${C.shu}; outline-offset: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .fw, .click-fw, .fw-launch, .charge-ring, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash { animation: none !important; transition: none !important; }
+  .furin, .furin-tanzaku, .ink, .svg-in, .lantern, .lantern-body, .click-fw, .fw-launch, .charge-ring, .firefly, .card, .badge-fw-rays, .badge-fw-core, .star, .splash { animation: none !important; transition: none !important; }
 }
 `;
 
